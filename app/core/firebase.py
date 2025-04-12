@@ -23,7 +23,7 @@ def initialize_firebase():
         if not firebase_admin._apps:
             cred = credentials.Certificate(key_path)
             firebase_admin.initialize_app(cred)
-            print("Firebase Admin SDK가 성공적으로 초기화되었습니다.")
+            # print("Firebase Admin SDK가 성공적으로 초기화되었습니다.")
         else:
             print("Firebase Admin SDK가 이미 초기화되어 있습니다.")
     except Exception as e:

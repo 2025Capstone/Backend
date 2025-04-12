@@ -12,3 +12,5 @@ alembic
 uuid
 firebase-admin
 torch
+cryptography
+jwt
