@@ -29,7 +29,7 @@ async def verify_token_and_handle_student(
 
 
 
-@router.post("/refresh", response_model=TokenResponse, summary="Refresh Access Token", tags=["auth"])
+@router.post("/refresh", response_model=TokenResponse, summary="Refresh Access Token")
 def refresh_token(
         refresh_token: str = Body(..., embed=True),
         db: Session = Depends(get_db)
