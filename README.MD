@@ -18,7 +18,11 @@ alembic revision --autogenerate -m "test"
 ```
 
 마이그레이션 파일 수정
-```python
 ```bash
 alembic upgrade head
+```
+
+더미데이터 추가 코드
+```bash
+mysql -h 127.0.0.1 -P 3306 -u root -p demo < dummy.sql
 ```
