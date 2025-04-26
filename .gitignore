@@ -3,3 +3,4 @@
 temp.txt
 .secret
 __pycache__
+.venv

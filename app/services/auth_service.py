@@ -1,13 +1,19 @@
-from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
 from app.services.token_service import create_access_token, create_refresh_token_with_rotation
 
 from app.schemas.student import StudentAuthResponse, StudentCreate
 from app.services.student_service import (
-    get_student_by_uid,
     create_student,
     get_student_by_email
 )
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import JWTError, jwt
+
+from sqlalchemy.orm import Session
+from app.dependencies.db import get_db
+from app.services.student_service import get_student_by_uid
+from app.core.config import settings
+
 
 def handle_student_authentication(
         db: Session,
@@ -57,3 +63,45 @@ def handle_student_authentication(
         access_token=access_token,
         refresh_token=refresh_token
     )
+
+
+
+
+bearer_scheme = HTTPBearer()
+
+# 토큰 검증 실패용 공통 예외
+credentials_exception = HTTPException(
+    status_code=status.HTTP_401_UNAUTHORIZED,
+    detail="Could not validate credentials",
+    headers={"WWW-Authenticate": "Bearer"},
+)
+
+async def get_current_student(
+        credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+        db: Session = Depends(get_db),
+):
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(
+            token,
+            settings.JWT_SECRET_KEY,
+            algorithms=[settings.JWT_ALGORITHM]
+        )
+        uid: str = payload.get("sub")
+        if uid is None:
+            # 여기서 바로 정의해 둔 예외를 던집니다
+            raise credentials_exception
+    except JWTError:
+        # 토큰 자체가 잘못됐거나 만료된 경우
+        raise credentials_exception
+
+    student = get_student_by_uid(db=db, student_uid=uid)
+    if not student:
+        # 토큰은 유효하지만, 해당 uid의 학생이 DB에 없을 때
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return student

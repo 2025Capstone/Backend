@@ -1,14 +1,15 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+
+from app.services.auth_service import get_current_student
 from app.services.video_service import upload_video_to_s3
 from sqlalchemy.orm import Session
 from app.models.video import Video
 from app.schemas.video import VideoResponse, VideoCreate
 from app.utils.video_helpers import extract_video_duration  # 위 helper 함수 위치에 따라 import
 from app.dependencies.db import get_db
-from app.dependencies.firebase_deps import get_verified_firebase_user
 
 router = APIRouter(
-    dependencies=[Depends(get_verified_firebase_user)]
+    dependencies=[Depends(get_current_student)]
 )
 
 @router.post("/upload", response_model=VideoResponse)

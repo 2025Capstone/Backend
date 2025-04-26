@@ -11,7 +11,7 @@ class StudentAuthResponse(BaseModel):
     refresh_token: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class StudentCreate(BaseModel):
@@ -20,4 +20,4 @@ class StudentCreate(BaseModel):
     name: Optional[str]
 
     class Config:
-        orm_mode = True
+        from_attributes = True

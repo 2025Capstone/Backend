@@ -1,8 +1,15 @@
+
+환경 설정
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
 라이브러리 설치
 ```bash
 pip install -r requirements.txt
 ```
-ㅇ
+
 
 FastAPI 서버 실행
 ```bash

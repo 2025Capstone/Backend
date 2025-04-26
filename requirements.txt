@@ -13,5 +13,5 @@ uuid
 firebase-admin
 torch
 cryptography
-jwt
 PyJWT
+python-jose

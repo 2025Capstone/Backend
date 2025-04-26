@@ -1,4 +1,5 @@
 import jwt
+from jwt import ExpiredSignatureError, InvalidTokenError
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
@@ -40,6 +41,7 @@ def rotate_refresh_token(db: Session, refresh_token: str) -> tuple[str, str]:
         if not db_token or db_token.is_revoked:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token is invalid or already used")
 
+        # 기존 리프레시 토큰을 revoke
         db_token.is_revoked = True
         db.commit()
 
@@ -48,7 +50,7 @@ def rotate_refresh_token(db: Session, refresh_token: str) -> tuple[str, str]:
 
         return new_access_token, new_refresh_token
 
-    except jwt.ExpiredSignatureError:
+    except ExpiredSignatureError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
-    except jwt.PyJWTError:
+    except InvalidTokenError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
