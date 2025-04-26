@@ -14,11 +14,7 @@ router = APIRouter()
     "/verify-token",
     response_model=StudentAuthResponse,
     summary="Verify Firebase Token and Handle Student",
-    description="""
-    Firebase ID 토큰을 검증하고 해당 정보를 바탕으로 로컬 데이터베이스에서
-    학생(student) 사용자를 조회하거나 새로 생성합니다.
-    - 요청 헤더에 'Authorization: Bearer <FIREBASE_ID_TOKEN>' 포함 필요.
-    """
+    description= """token을 검증하고, 학생 인증을 처리합니다."""
 )
 async def verify_token_and_handle_student(
         db: Session = Depends(get_db),
@@ -29,7 +25,10 @@ async def verify_token_and_handle_student(
 
 
 
-@router.post("/refresh", response_model=TokenResponse, summary="Refresh Access Token")
+@router.post("/refresh", response_model=TokenResponse,
+             summary="Refresh Access Token",
+             description="만료된 Access Token을 갱신합니다."
+             )
 def refresh_token(
         refresh_token: str = Body(..., embed=True),
         db: Session = Depends(get_db)
