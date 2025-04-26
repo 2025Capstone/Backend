@@ -2,8 +2,8 @@ from pydantic import BaseModel
 
 class LectureBase(BaseModel):
     id: int
-    instructor_id: int
     name: str
+    instructor_name: str
 
     class Config:
         from_attributes = True

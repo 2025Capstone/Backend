@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy.orm import relationship
 from app.db.base import Base
 
 class Lecture(Base):
@@ -7,3 +8,5 @@ class Lecture(Base):
     id = Column(Integer, primary_key=True, index=True)
     instructor_id = Column(Integer, ForeignKey("instructor.id"), nullable=False)
     name = Column(String(255), nullable=False)
+
+    instructor = relationship("Instructor", backref="lectures")
