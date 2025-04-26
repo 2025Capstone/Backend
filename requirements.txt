@@ -14,3 +14,4 @@ firebase-admin
 torch
 cryptography
 jwt
+PyJWT
