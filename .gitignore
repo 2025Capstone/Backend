@@ -2,3 +2,4 @@
 .idea
 temp.txt
 .secret
+__pycache__

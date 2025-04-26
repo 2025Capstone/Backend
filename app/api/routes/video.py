@@ -5,12 +5,15 @@ from app.models.video import Video
 from app.schemas.video import VideoResponse, VideoCreate
 from app.utils.video_helpers import extract_video_duration  # 위 helper 함수 위치에 따라 import
 from app.dependencies.db import get_db
+from app.dependencies.firebase_deps import get_verified_firebase_user
 
-router = APIRouter()
+router = APIRouter(
+    dependencies=[Depends(get_verified_firebase_user)]
+)
 
-@router.post("/upload/", response_model=VideoResponse)
+@router.post("/upload", response_model=VideoResponse)
 def upload_video(
-        video_data: VideoCreate = Depends(VideoCreate.as_form),  # ✅ 스키마를 통해 요청 데이터 검증
+        video_data: VideoCreate = Depends(VideoCreate.as_form),  # 스키마를 통해 요청 데이터 검증
         file: UploadFile = File(...),
         db: Session = Depends(get_db)
 ):
@@ -34,7 +37,7 @@ def upload_video(
         video_index = video_count + 1
 
         # 3. S3에 업로드하여 영상 링크 획득
-        s3_link, unique_folder = upload_video_to_s3(file.file, file.filename)  # ✅ 튜플을 개별 변수로 할당
+        s3_link, unique_folder = upload_video_to_s3(file.file, file.filename)  # 튜플을 개별 변수로 할당
         # 4. Video 레코드 생성
         new_video = Video(
             lecture_id=video_data.lecture_id,

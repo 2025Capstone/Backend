@@ -9,6 +9,7 @@ from app.core.firebase import initialize_firebase # Firebase 초기화 함수 im
 from app.api.routes import auth as auth_router
 from app.api.routes import video as video_router # video 라우터 이름 확인
 from app.api.routes import websocket as websocket_router # websocket 라우터 이름 확인
+from app.api.routes import lecture as lecture_router  # lecture 라우터 import
 
 # --- 미들웨어 import ---
 from fastapi.middleware.cors import CORSMiddleware
@@ -48,6 +49,12 @@ app.include_router(
     video_router.router, # video.py의 router 객체 사용
     prefix="/api/v1/videos",
     tags=["videos"]
+)
+
+app.include_router(
+    lecture_router.router,
+    prefix="/api/v1/lectures",
+    tags=["lectures"]
 )
 
 app.include_router(

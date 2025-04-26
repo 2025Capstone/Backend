@@ -17,7 +17,7 @@ class StudentAuthResponse(BaseModel):
 class StudentCreate(BaseModel):
     uid: str
     email: str
-    name: str
+    name: Optional[str]
 
     class Config:
         orm_mode = True
