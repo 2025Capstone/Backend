@@ -4,7 +4,11 @@ from typing import List
 from app.models.enrollment import Enrollment
 from app.models.lecture import Lecture
 from app.models.instructor import Instructor
-from app.schemas.student import EnrollmentRequest, EnrollmentResponse
+from app.models.video import Video
+from app.schemas.student import (
+    EnrollmentRequest, EnrollmentResponse,
+    LectureVideoListRequest, LectureVideoInfo
+)
 
 class EnrolledLectureInfo:
     lecture_id: int
@@ -48,4 +52,25 @@ def get_enrolled_lectures_for_student(db: Session, student_uid: str) -> List[dic
             "instructor_name": row.instructor_name
         }
         for row in results
+    ]
+
+def get_lecture_videos_for_student(db: Session, student_uid: str, lecture_id: int) -> List[LectureVideoInfo]:
+    # 1. 수강신청 여부 확인
+    enrolled = db.query(Enrollment).filter(
+        Enrollment.student_uid == student_uid,
+        Enrollment.lecture_id == lecture_id
+    ).first()
+    if not enrolled:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="해당 강의에 수강신청되어 있지 않습니다.")
+
+    # 2. 영상 리스트 반환
+    videos = db.query(Video).filter(Video.lecture_id == lecture_id).order_by(Video.index).all()
+    return [
+        LectureVideoInfo(
+            id=video.id,
+            index=video.index,
+            title=video.title,
+            duration=video.duration,
+            upload_at=str(video.upload_at)
+        ) for video in videos
     ]

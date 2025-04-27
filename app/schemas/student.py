@@ -1,6 +1,6 @@
 # /app/schemas/student.py
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import Optional, List
 
 
 class StudentAuthResponse(BaseModel):
@@ -29,3 +29,17 @@ class EnrollmentRequest(BaseModel):
 
 class EnrollmentResponse(BaseModel):
     message: str
+
+
+class LectureVideoListRequest(BaseModel):
+    lecture_id: int
+
+class LectureVideoInfo(BaseModel):
+    id: int
+    index: int
+    title: str
+    duration: int
+    upload_at: str
+
+class LectureVideoListResponse(BaseModel):
+    videos: List[LectureVideoInfo]
