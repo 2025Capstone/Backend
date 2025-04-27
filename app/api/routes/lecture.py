@@ -5,9 +5,10 @@ from app.models.lecture import Lecture
 from app.models.instructor import Instructor
 from app.schemas.lecture import LectureListResponse, LectureBase
 from app.services.auth_service import get_current_student
+from app.dependencies.auth import get_current_instructor
 
 router = APIRouter(
-    dependencies=[Depends(get_current_student)]
+    dependencies=[Depends(get_current_instructor)]
 )
 
 @router.get("", response_model=LectureListResponse, description="강의 목록 조회")
