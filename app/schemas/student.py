@@ -21,3 +21,11 @@ class StudentCreate(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+
+class EnrollmentRequest(BaseModel):
+    lecture_id: int
+
+class EnrollmentResponse(BaseModel):
+    message: str

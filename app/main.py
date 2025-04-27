@@ -12,6 +12,7 @@ from app.api.routes import websocket as websocket_router # websocket 라우터 �
 from app.api.routes import lecture as lecture_router  # lecture 라우터 import
 from app.api.routes import instructor_auth as instructor_auth_router # instructor 라우터 import
 from app.api.routes import instructor as instructor_router # instructor 라우터 import
+from app.api.routes import student as student_router # student 라우터 import
 
 # --- 미들웨어 import ---
 from fastapi.middleware.cors import CORSMiddleware
@@ -77,3 +78,8 @@ app.include_router(
     tags=["instructors"]
 )
 
+app.include_router(
+    student_router.router,
+    prefix="/api/v1/students",
+    tags=["students"]
+)
