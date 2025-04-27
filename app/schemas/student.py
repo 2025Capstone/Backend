@@ -43,3 +43,9 @@ class LectureVideoInfo(BaseModel):
 
 class LectureVideoListResponse(BaseModel):
     videos: List[LectureVideoInfo]
+
+class VideoLinkRequest(BaseModel):
+    video_id: int
+
+class VideoLinkResponse(BaseModel):
+    s3_link: str

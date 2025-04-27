@@ -3,8 +3,13 @@ from app.services.auth_service import get_current_student
 from sqlalchemy.orm import Session
 from app.dependencies.db import get_db
 from app.dependencies.auth import get_current_student_uid
-from app.services.student import get_enrolled_lectures_for_student, get_lecture_videos_for_student
-from app.schemas.student import LectureVideoListRequest, LectureVideoListResponse
+from app.services.student import (
+    get_enrolled_lectures_for_student, get_lecture_videos_for_student, get_video_link_for_student
+)
+from app.schemas.student import (
+    LectureVideoListRequest, LectureVideoListResponse,
+    VideoLinkRequest, VideoLinkResponse
+)
 
 router = APIRouter(
     dependencies=[Depends(get_current_student)]
@@ -35,3 +40,16 @@ def get_lecture_video_list(
     """
     videos = get_lecture_videos_for_student(db, student_uid, req.lecture_id)
     return LectureVideoListResponse(videos=videos)
+
+@router.post("/lecture/video/link", response_model=VideoLinkResponse, summary="특정 영상의 S3 링크 제공")
+def get_video_s3_link(
+    req: VideoLinkRequest = Body(...),
+    db: Session = Depends(get_db),
+    student_uid: str = Depends(get_current_student_uid)
+):
+    """
+    학생이 video id를 제공하면, 수강신청 여부 확인 후 해당 영상의 S3 링크를 반환합니다.
+    - 미수강자는 403 에러 반환
+    - 영상이 없으면 404 에러 반환
+    """
+    return get_video_link_for_student(db, student_uid, req.video_id)
