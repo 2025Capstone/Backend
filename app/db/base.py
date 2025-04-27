@@ -9,3 +9,4 @@ import app.models.watch_history
 import app.models.enrollment
 import app.models.instructor
 import app.models.token
+import app.models.instructor_refresh_token

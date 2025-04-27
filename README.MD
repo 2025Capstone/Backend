@@ -33,3 +33,4 @@ alembic upgrade head
 ```bash
 mysql -h 127.0.0.1 -P 3306 -u root -p demo < dummy.sql
 ```
+비밀번호는 password123!

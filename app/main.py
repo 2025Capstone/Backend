@@ -10,6 +10,7 @@ from app.api.routes import auth as auth_router
 from app.api.routes import video as video_router # video 라우터 이름 확인
 from app.api.routes import websocket as websocket_router # websocket 라우터 이름 확인
 from app.api.routes import lecture as lecture_router  # lecture 라우터 import
+from app.api.routes import instructor_auth as instructor_router # instructor 라우터 import
 
 # --- 미들웨어 import ---
 from fastapi.middleware.cors import CORSMiddleware
@@ -63,7 +64,8 @@ app.include_router(
     tags=["websocket"]
 )
 
-# --- 루트 경로 (선택 사항) ---
-@app.get("/", tags=["Root"])
-async def read_root():
-    return {"message": "API is running!"}
+app.include_router(
+    instructor_router.router,
+    prefix="/api/v1/instructors",
+    tags=["instructors"]
+)

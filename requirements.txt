@@ -15,3 +15,6 @@ torch
 cryptography
 PyJWT
 python-jose
+passlib
+pydantic[email]
+bcrypt
