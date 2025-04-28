@@ -16,3 +16,14 @@ class MyLectureInfo(BaseModel):
 
 class MyLectureListResponse(BaseModel):
     lectures: List[MyLectureInfo]
+
+class LectureStudentListRequest(BaseModel):
+    lecture_id: int
+
+class LectureStudentInfo(BaseModel):
+    uid: str
+    email: str
+    name: str | None
+
+class LectureStudentListResponse(BaseModel):
+    students: List[LectureStudentInfo]
