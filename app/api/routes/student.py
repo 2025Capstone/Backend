@@ -4,13 +4,14 @@ from sqlalchemy.orm import Session
 from app.dependencies.db import get_db
 from app.dependencies.auth import get_current_student_uid
 from app.services.student import (
-    get_enrolled_lectures_for_student, get_lecture_videos_for_student, get_video_link_for_student, get_student_profile, update_student_name
+    get_enrolled_lectures_for_student, get_lecture_videos_for_student, get_video_link_for_student, get_student_profile, update_student_name, cancel_enrollment
 )
 from app.schemas.student import (
     LectureVideoListRequest, LectureVideoListResponse,
     VideoLinkRequest, VideoLinkResponse,
     StudentProfileResponse,
-    StudentNameUpdateRequest, StudentNameUpdateResponse
+    StudentNameUpdateRequest, StudentNameUpdateResponse,
+    EnrollmentCancelRequest, EnrollmentCancelResponse
 )
 
 router = APIRouter(
@@ -78,3 +79,15 @@ def set_my_name(
     - 학생 정보가 없으면 404 반환
     """
     return update_student_name(db, student_uid, req.name)
+
+@router.delete("/enrollments", response_model=EnrollmentCancelResponse, summary="수강 취소")
+def cancel_my_enrollment(
+    req: EnrollmentCancelRequest = Body(...),
+    db: Session = Depends(get_db),
+    student_uid: str = Depends(get_current_student_uid)
+):
+    """
+    학생이 본인 토큰으로 수강중인 강의를 취소합니다.
+    - 수강중이 아니면 404 반환
+    """
+    return cancel_enrollment(db, student_uid, req.lecture_id)

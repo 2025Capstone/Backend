@@ -27,7 +27,13 @@ class StudentCreate(BaseModel):
 class EnrollmentRequest(BaseModel):
     lecture_id: int
 
+class EnrollmentCancelRequest(BaseModel):
+    lecture_id: int
+
 class EnrollmentResponse(BaseModel):
+    message: str
+
+class EnrollmentCancelResponse(BaseModel):
     message: str
 
 

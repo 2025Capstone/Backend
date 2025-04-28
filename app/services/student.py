@@ -8,6 +8,7 @@ from app.models.video import Video
 from app.models.student import Student
 from app.schemas.student import (
     EnrollmentRequest, EnrollmentResponse,
+    EnrollmentCancelRequest, EnrollmentCancelResponse,
     LectureVideoListRequest, LectureVideoInfo,
     VideoLinkRequest, VideoLinkResponse,
     StudentProfileResponse,
@@ -116,3 +117,15 @@ def update_student_name(db: Session, student_uid: str, name: str) -> StudentName
     db.commit()
     db.refresh(student)
     return StudentNameUpdateResponse(message="이름이 성공적으로 변경되었습니다.", name=student.name)
+
+def cancel_enrollment(db: Session, student_uid: str, lecture_id: int) -> EnrollmentCancelResponse:
+    enrollment = db.query(Enrollment).filter(
+        Enrollment.student_uid == student_uid,
+        Enrollment.lecture_id == lecture_id
+    ).first()
+    if not enrollment:
+        raise HTTPException(status_code=404, detail="수강중인 강의가 아닙니다.")
+
+    db.delete(enrollment)
+    db.commit()
+    return EnrollmentCancelResponse(message="수강이 성공적으로 취소되었습니다.")
