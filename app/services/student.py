@@ -5,10 +5,13 @@ from app.models.enrollment import Enrollment
 from app.models.lecture import Lecture
 from app.models.instructor import Instructor
 from app.models.video import Video
+from app.models.student import Student
 from app.schemas.student import (
     EnrollmentRequest, EnrollmentResponse,
     LectureVideoListRequest, LectureVideoInfo,
-    VideoLinkRequest, VideoLinkResponse
+    VideoLinkRequest, VideoLinkResponse,
+    StudentProfileResponse,
+    StudentNameUpdateRequest, StudentNameUpdateResponse
 )
 
 class EnrolledLectureInfo:
@@ -91,3 +94,25 @@ def get_video_link_for_student(db: Session, student_uid: str, video_id: int) -> 
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="해당 강의에 수강신청되어 있지 않습니다.")
     # 3. s3_link 반환
     return VideoLinkResponse(s3_link=video.s3_link)
+
+def get_student_profile(db: Session, student_uid: str) -> StudentProfileResponse:
+    student = db.query(Student).filter(Student.uid == student_uid).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="학생 정보를 찾을 수 없습니다.")
+    return StudentProfileResponse(email=student.email, name=student.name)
+
+def update_student_name(db: Session, student_uid: str, name: str) -> StudentNameUpdateResponse:
+    # 입력값 검증
+    if not name or not name.strip():
+        raise HTTPException(status_code=400, detail="이름을 입력해 주세요.")
+    if len(name.strip()) > 255:
+        raise HTTPException(status_code=400, detail="이름은 255자 이내여야 합니다.")
+
+    student = db.query(Student).filter(Student.uid == student_uid).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="학생 정보를 찾을 수 없습니다.")
+
+    student.name = name.strip()
+    db.commit()
+    db.refresh(student)
+    return StudentNameUpdateResponse(message="이름이 성공적으로 변경되었습니다.", name=student.name)

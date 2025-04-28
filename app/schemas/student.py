@@ -49,3 +49,14 @@ class VideoLinkRequest(BaseModel):
 
 class VideoLinkResponse(BaseModel):
     s3_link: str
+
+class StudentProfileResponse(BaseModel):
+    email: str
+    name: str | None
+
+class StudentNameUpdateRequest(BaseModel):
+    name: str
+
+class StudentNameUpdateResponse(BaseModel):
+    message: str
+    name: str | None

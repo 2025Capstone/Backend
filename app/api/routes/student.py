@@ -4,11 +4,13 @@ from sqlalchemy.orm import Session
 from app.dependencies.db import get_db
 from app.dependencies.auth import get_current_student_uid
 from app.services.student import (
-    get_enrolled_lectures_for_student, get_lecture_videos_for_student, get_video_link_for_student
+    get_enrolled_lectures_for_student, get_lecture_videos_for_student, get_video_link_for_student, get_student_profile, update_student_name
 )
 from app.schemas.student import (
     LectureVideoListRequest, LectureVideoListResponse,
-    VideoLinkRequest, VideoLinkResponse
+    VideoLinkRequest, VideoLinkResponse,
+    StudentProfileResponse,
+    StudentNameUpdateRequest, StudentNameUpdateResponse
 )
 
 router = APIRouter(
@@ -53,3 +55,26 @@ def get_video_s3_link(
     - 영상이 없으면 404 에러 반환
     """
     return get_video_link_for_student(db, student_uid, req.video_id)
+
+@router.get("/profile", response_model=StudentProfileResponse, summary="내 프로필 정보 조회")
+def get_my_profile(
+    db: Session = Depends(get_db),
+    student_uid: str = Depends(get_current_student_uid)
+):
+    """
+    학생이 본인 토큰으로 자신의 email, 이름을 조회합니다.
+    """
+    return get_student_profile(db, student_uid)
+
+@router.patch("/profile/name", response_model=StudentNameUpdateResponse, summary="학생 이름 변경")
+def set_my_name(
+    req: StudentNameUpdateRequest = Body(...),
+    db: Session = Depends(get_db),
+    student_uid: str = Depends(get_current_student_uid)
+):
+    """
+    학생이 본인 이름을 설정(변경)합니다.
+    - 이름이 비어있거나 255자 초과면 400 반환
+    - 학생 정보가 없으면 404 반환
+    """
+    return update_student_name(db, student_uid, req.name)
