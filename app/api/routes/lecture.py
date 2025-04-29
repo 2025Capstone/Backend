@@ -17,7 +17,9 @@ router = APIRouter(
 @router.get("", response_model=LectureListResponse, description="강의 목록 조회")
 def get_lectures(db: Session = Depends(get_db)):
     lectures = (
-        db.query(Lecture).join(Instructor, Lecture.instructor_id == Instructor.id)
+        db.query(Lecture)
+        .join(Instructor, Lecture.instructor_id == Instructor.id)
+        .filter(Lecture.is_public == True)
         .with_entities(Lecture.id, Lecture.name, Instructor.name.label("instructor_name"))
         .all()
     )

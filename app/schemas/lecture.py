@@ -10,3 +10,12 @@ class LectureBase(BaseModel):
 
 class LectureListResponse(BaseModel):
     lectures: list[LectureBase]
+
+class LectureVisibilityUpdateRequest(BaseModel):
+    lecture_id: int
+    is_public: bool
+
+class LectureVisibilityUpdateResponse(BaseModel):
+    id: int
+    is_public: bool
+    message: str

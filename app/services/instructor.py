@@ -16,7 +16,8 @@ def create_lecture_for_instructor(db: Session, instructor_id: int, lecture_in: L
 
     lecture = Lecture(
         name=lecture_in.name,
-        instructor_id=instructor_id
+        instructor_id=instructor_id,
+        is_public=True  # 강의 개설 시 기본값을 공개(1)로 설정
     )
     db.add(lecture)
     db.commit()
