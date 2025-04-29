@@ -23,3 +23,12 @@ class VideoResponse(VideoBase):
 
     class Config:
         from_attributes = True
+
+class VideoVisibilityUpdateRequest(BaseModel):
+    video_id: int
+    is_public: int  # 1=공개, 0=비공개
+
+class VideoVisibilityUpdateResponse(BaseModel):
+    id: int
+    is_public: int
+    message: str

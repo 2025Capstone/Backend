@@ -5,6 +5,7 @@ from app.services.auth_service import get_current_student
 from app.services.video_service import upload_video_to_s3
 from sqlalchemy.orm import Session
 from app.models.video import Video
+from app.models.lecture import Lecture
 from app.schemas.video import VideoResponse, VideoCreate
 from app.utils.video_helpers import extract_video_duration  # 위 helper 함수 위치에 따라 import
 from app.dependencies.db import get_db
@@ -17,7 +18,8 @@ router = APIRouter(
 def upload_video(
         video_data: VideoCreate = Depends(VideoCreate.as_form),  # 스키마를 통해 요청 데이터 검증
         file: UploadFile = File(...),
-        db: Session = Depends(get_db)
+        db: Session = Depends(get_db),
+        instructor_id: int = Depends(get_current_instructor_id)
 ):
     """
     강의 영상 업로드 API
@@ -26,7 +28,13 @@ def upload_video(
     - 해당 강의의 기존 영상 개수를 기반으로 영상 순서(index) 결정
     - AWS S3에 영상 업로드 후, S3 링크(s3_link) 획득
     - DB에 Video 레코드 생성 후 응답 반환
+    - 강의자가 본인 강의에만 업로드할 수 있도록 검증
     """
+    # 본인 강의인지 검증
+    lecture = db.query(Lecture).filter(Lecture.id == video_data.lecture_id, Lecture.instructor_id == instructor_id).first()
+    if not lecture:
+        raise HTTPException(status_code=403, detail="본인이 개설한 강의에만 영상을 업로드할 수 있습니다.")
+
     if not file.content_type.startswith("video/"):
         raise HTTPException(status_code=400, detail="비디오 파일만 업로드 가능합니다.")
 
@@ -59,7 +67,9 @@ def upload_video(
             title=new_video.title,
             s3_link=new_video.s3_link,
             duration=new_video.duration,
-            index=new_video.index
+            index=new_video.index,
+            upload_at=str(new_video.upload_at) if new_video.upload_at else None,
+            is_public=new_video.is_public
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

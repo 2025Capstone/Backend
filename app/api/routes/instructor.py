@@ -4,8 +4,8 @@ from app.dependencies.db import get_db
 from app.dependencies.auth import get_current_instructor_id
 from app.schemas.instructor import LectureCreate, LectureCreateResponse, MyLectureListResponse, LectureStudentListRequest, LectureStudentListResponse
 from app.schemas.lecture import LectureVisibilityUpdateRequest, LectureVisibilityUpdateResponse
-from app.schemas.video import VideoResponse
-from app.services.instructor import create_lecture_for_instructor, get_my_lectures, get_students_for_my_lecture, get_videos_for_my_lecture
+from app.schemas.video import VideoResponse, VideoVisibilityUpdateRequest, VideoVisibilityUpdateResponse
+from app.services.instructor import create_lecture_for_instructor, get_my_lectures, get_students_for_my_lecture, get_videos_for_my_lecture, update_video_visibility
 from app.models.lecture import Lecture
 
 router = APIRouter()
@@ -80,3 +80,15 @@ def update_lecture_visibility(
         is_public=lecture.is_public,
         message="공개여부가 성공적으로 변경되었습니다."
     )
+
+@router.patch("/lecture/video/visibility", response_model=VideoVisibilityUpdateResponse, summary="내 강의 영상 공개여부 수정")
+def update_my_video_visibility(
+    req: VideoVisibilityUpdateRequest = Body(...),
+    db: Session = Depends(get_db),
+    instructor_id: int = Depends(get_current_instructor_id)
+):
+    """
+    강의자가 본인 강의의 영상 공개여부를 수정합니다.
+    - video_id로 식별하며, 본인 강의가 아니면 403 반환
+    """
+    return update_video_visibility(db, instructor_id, req)

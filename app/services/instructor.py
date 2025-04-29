@@ -5,7 +5,7 @@ from app.models.student import Student
 from app.models.enrollment import Enrollment
 from app.schemas.instructor import LectureCreate, LectureCreateResponse, MyLectureInfo, LectureStudentListRequest, LectureStudentInfo
 from app.models.video import Video
-from app.schemas.video import VideoResponse
+from app.schemas.video import VideoResponse, VideoVisibilityUpdateRequest, VideoVisibilityUpdateResponse
 
 def create_lecture_for_instructor(db: Session, instructor_id: int, lecture_in: LectureCreate) -> LectureCreateResponse:
     # 중복 체크: 같은 instructor가 같은 이름의 강의를 이미 개설했는지 확인
@@ -67,3 +67,16 @@ def get_videos_for_my_lecture(db: Session, instructor_id: int, lecture_id: int) 
         upload_at=str(video.upload_at) if video.upload_at else None,
         is_public=video.is_public
     ) for video in videos]
+
+def update_video_visibility(db: Session, instructor_id: int, req: VideoVisibilityUpdateRequest) -> VideoVisibilityUpdateResponse:
+    # video 및 강의 소유권 확인
+    video = db.query(Video).filter(Video.id == req.video_id).first()
+    if not video:
+        raise HTTPException(status_code=404, detail="해당 영상을 찾을 수 없습니다.")
+    lecture = db.query(Lecture).filter(Lecture.id == video.lecture_id, Lecture.instructor_id == instructor_id).first()
+    if not lecture:
+        raise HTTPException(status_code=403, detail="본인이 개설한 강의의 영상만 수정할 수 있습니다.")
+    video.is_public = req.is_public
+    db.commit()
+    db.refresh(video)
+    return VideoVisibilityUpdateResponse(id=video.id, is_public=video.is_public, message="영상 공개여부가 변경되었습니다.")
