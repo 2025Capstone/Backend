@@ -34,3 +34,14 @@ alembic upgrade head
 mysql -h 127.0.0.1 -P 3306 -u root -p demo < dummy.sql
 ```
 비밀번호는 password123!
+
+학생 테스트 코드
+```bash
+PYTHONPATH=. pytest tests/test_student.py 
+```
+
+
+instructor 테스트 코드
+```bash
+PYTHONPATH=. pytest tests/test_instructor.py 
+```
