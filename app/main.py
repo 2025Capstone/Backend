@@ -7,7 +7,6 @@ from app.core.firebase import initialize_firebase # Firebase 초기화 함수 im
 
 # --- API Routers ---
 from app.api.routes import auth as auth_router
-from app.api.routes import video as video_router # video 라우터 이름 확인
 from app.api.routes import websocket as websocket_router # websocket 라우터 이름 확인
 from app.api.routes import instructor_auth as instructor_auth_router # instructor 라우터 import
 from app.api.routes import instructor as instructor_router # instructor 라우터 import
@@ -47,11 +46,7 @@ app.include_router(
     tags=["Authentication"]
 )
 
-app.include_router(
-    video_router.router, # video.py의 router 객체 사용
-    prefix="/api/v1/videos",
-    tags=["videos"]
-)
+
 
 
 
