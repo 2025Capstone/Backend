@@ -11,3 +11,4 @@ class Video(Base):
     duration = Column(Integer, nullable=False)  # 초 단위 길이
     upload_at = Column(TIMESTAMP, server_default=func.now())
     index = Column(Integer, nullable=False)  # 영상 순서
+    is_public = Column(Integer, nullable=False, default=1)  # 영상 공개 여부(1=공개, 0=비공개)

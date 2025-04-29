@@ -68,8 +68,8 @@ def get_lecture_videos_for_student(db: Session, student_uid: str, lecture_id: in
     if not enrolled:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="해당 강의에 수강신청되어 있지 않습니다.")
 
-    # 2. 영상 리스트 반환
-    videos = db.query(Video).filter(Video.lecture_id == lecture_id).order_by(Video.index).all()
+    # 2. 영상 리스트 반환 (공개 영상만)
+    videos = db.query(Video).filter(Video.lecture_id == lecture_id, Video.is_public == 1).order_by(Video.index).all()
     return [
         LectureVideoInfo(
             id=video.id,
@@ -82,9 +82,9 @@ def get_lecture_videos_for_student(db: Session, student_uid: str, lecture_id: in
 
 def get_video_link_for_student(db: Session, student_uid: str, video_id: int) -> VideoLinkResponse:
     # 1. video 조회 및 존재 여부 확인
-    video = db.query(Video).filter(Video.id == video_id).first()
+    video = db.query(Video).filter(Video.id == video_id, Video.is_public == 1).first()
     if not video:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="해당 영상이 존재하지 않습니다.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="해당 영상이 존재하지 않거나 비공개 상태입니다.")
     lecture_id = video.lecture_id
     # 2. 수강신청 여부 확인
     enrolled = db.query(Enrollment).filter(

@@ -18,6 +18,8 @@ class VideoResponse(VideoBase):
     s3_link: str
     duration: int
     index: int
+    upload_at: str
+    is_public: int
 
     class Config:
         from_attributes = True

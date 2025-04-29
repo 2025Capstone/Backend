@@ -1,17 +1,22 @@
 from fastapi import APIRouter, Depends, Body
+
+from app.models.instructor import Instructor
+from app.models.lecture import Lecture
+from app.schemas.lecture import LectureListResponse
 from app.services.auth_service import get_current_student
 from sqlalchemy.orm import Session
 from app.dependencies.db import get_db
 from app.dependencies.auth import get_current_student_uid
 from app.services.student import (
-    get_enrolled_lectures_for_student, get_lecture_videos_for_student, get_video_link_for_student, get_student_profile, update_student_name, cancel_enrollment
+    get_enrolled_lectures_for_student, get_lecture_videos_for_student, get_video_link_for_student, get_student_profile,
+    update_student_name, cancel_enrollment, enroll_student_in_lecture
 )
 from app.schemas.student import (
     LectureVideoListRequest, LectureVideoListResponse,
     VideoLinkRequest, VideoLinkResponse,
     StudentProfileResponse,
     StudentNameUpdateRequest, StudentNameUpdateResponse,
-    EnrollmentCancelRequest, EnrollmentCancelResponse
+    EnrollmentCancelRequest, EnrollmentCancelResponse, EnrollmentResponse, EnrollmentRequest
 )
 
 router = APIRouter(
@@ -91,3 +96,31 @@ def cancel_my_enrollment(
     - 수강중이 아니면 404 반환
     """
     return cancel_enrollment(db, student_uid, req.lecture_id)
+
+@router.post("/enrollments", response_model=EnrollmentResponse, summary="수강신청")
+def enroll(
+        enrollment_in: EnrollmentRequest = Body(...),
+        db: Session = Depends(get_db),
+        student_uid: str = Depends(get_current_student_uid)
+):
+    """
+    학생이 본인 토큰으로 수강신청을 요청합니다.
+    이미 수강신청한 경우 409 에러를 반환합니다.
+    """
+    return enroll_student_in_lecture(db, student_uid, enrollment_in)
+
+@router.get("", response_model=LectureListResponse, summary="강의 목록 조회")
+def get_lectures(db: Session = Depends(get_db)):
+    lectures = (
+        db.query(Lecture)
+        .join(Instructor, Lecture.instructor_id == Instructor.id)
+        .filter(Lecture.is_public == True)
+        .with_entities(Lecture.id, Lecture.name, Instructor.name.label("instructor_name"))
+        .all()
+    )
+    # 리스트를 dict로 변환
+    lecture_dicts = [
+        {"id": lec.id, "name": lec.name, "instructor_name": lec.instructor_name}
+        for lec in lectures
+    ]
+    return {"lectures": lecture_dicts}

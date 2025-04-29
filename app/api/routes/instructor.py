@@ -4,7 +4,8 @@ from app.dependencies.db import get_db
 from app.dependencies.auth import get_current_instructor_id
 from app.schemas.instructor import LectureCreate, LectureCreateResponse, MyLectureListResponse, LectureStudentListRequest, LectureStudentListResponse
 from app.schemas.lecture import LectureVisibilityUpdateRequest, LectureVisibilityUpdateResponse
-from app.services.instructor import create_lecture_for_instructor, get_my_lectures, get_students_for_my_lecture
+from app.schemas.video import VideoResponse
+from app.services.instructor import create_lecture_for_instructor, get_my_lectures, get_students_for_my_lecture, get_videos_for_my_lecture
 from app.models.lecture import Lecture
 
 router = APIRouter()
@@ -44,6 +45,18 @@ def get_my_lecture_students(
     """
     students = get_students_for_my_lecture(db, instructor_id, req.lecture_id)
     return LectureStudentListResponse(students=students)
+
+@router.get("/lecture/videos", response_model=list[VideoResponse], summary="내 강의 영상 목록 조회")
+def get_my_lecture_videos(
+    lecture_id: int,
+    db: Session = Depends(get_db),
+    instructor_id: int = Depends(get_current_instructor_id)
+):
+    """
+    강의자가 본인 토큰으로 자신의 강의에 속한 영상 전체 정보를 조회합니다.
+    강의 id를 받아 본인 강의가 아니면 403 에러를 반환합니다.
+    """
+    return get_videos_for_my_lecture(db, instructor_id, lecture_id)
 
 @router.patch("/lectures/visibility", response_model=LectureVisibilityUpdateResponse, summary="강의 공개여부 수정")
 def update_lecture_visibility(

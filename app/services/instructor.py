@@ -4,6 +4,8 @@ from app.models.lecture import Lecture
 from app.models.student import Student
 from app.models.enrollment import Enrollment
 from app.schemas.instructor import LectureCreate, LectureCreateResponse, MyLectureInfo, LectureStudentListRequest, LectureStudentInfo
+from app.models.video import Video
+from app.schemas.video import VideoResponse
 
 def create_lecture_for_instructor(db: Session, instructor_id: int, lecture_in: LectureCreate) -> LectureCreateResponse:
     # 중복 체크: 같은 instructor가 같은 이름의 강의를 이미 개설했는지 확인
@@ -47,3 +49,21 @@ def get_students_for_my_lecture(db: Session, instructor_id: int, lecture_id: int
         .all()
     )
     return [LectureStudentInfo(uid=row.uid, email=row.email, name=row.name) for row in results]
+
+def get_videos_for_my_lecture(db: Session, instructor_id: int, lecture_id: int) -> list[VideoResponse]:
+    # 본인 강의인지 확인
+    lecture = db.query(Lecture).filter(Lecture.id == lecture_id, Lecture.instructor_id == instructor_id).first()
+    if not lecture:
+        raise HTTPException(status_code=403, detail="본인이 개설한 강의가 아닙니다.")
+    videos = db.query(Video).filter(Video.lecture_id == lecture_id).order_by(Video.index).all()
+    # upload_at을 문자열로 변환하여 반환
+    return [VideoResponse(
+        id=video.id,
+        lecture_id=video.lecture_id,
+        title=video.title,
+        s3_link=video.s3_link,
+        duration=video.duration,
+        index=video.index,
+        upload_at=str(video.upload_at) if video.upload_at else None,
+        is_public=video.is_public
+    ) for video in videos]

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 
+from app.dependencies.auth import get_current_instructor_id
 from app.services.auth_service import get_current_student
 from app.services.video_service import upload_video_to_s3
 from sqlalchemy.orm import Session
@@ -9,7 +10,7 @@ from app.utils.video_helpers import extract_video_duration  # 위 helper 함수 
 from app.dependencies.db import get_db
 
 router = APIRouter(
-    dependencies=[Depends(get_current_student)]
+    dependencies=[Depends(get_current_instructor_id)]
 )
 
 @router.post("/upload", response_model=VideoResponse)
@@ -45,7 +46,8 @@ def upload_video(
             title=video_data.title,
             s3_link=s3_link,
             duration=int(duration),
-            index=video_index
+            index=video_index,
+            is_public=1  # 업로드 시 기본값을 공개로 설정
         )
         db.add(new_video)
         db.commit()

@@ -9,7 +9,6 @@ from app.core.firebase import initialize_firebase # Firebase 초기화 함수 im
 from app.api.routes import auth as auth_router
 from app.api.routes import video as video_router # video 라우터 이름 확인
 from app.api.routes import websocket as websocket_router # websocket 라우터 이름 확인
-from app.api.routes import lecture as lecture_router  # lecture 라우터 import
 from app.api.routes import instructor_auth as instructor_auth_router # instructor 라우터 import
 from app.api.routes import instructor as instructor_router # instructor 라우터 import
 from app.api.routes import student as student_router # student 라우터 import
@@ -54,11 +53,7 @@ app.include_router(
     tags=["videos"]
 )
 
-app.include_router(
-    lecture_router.router,
-    prefix="/api/v1/lectures",
-    tags=["lectures"]
-)
+
 
 app.include_router(
     websocket_router.router, # websocket.py의 router 객체 사용
