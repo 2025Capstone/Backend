@@ -96,7 +96,7 @@ def update_my_video_visibility(
     """
     return update_video_visibility(db, instructor_id, req)
 
-@router.post("/upload-video", response_model=VideoResponse)
+@router.post("/upload-video", response_model=VideoResponse, summary="비디오 업로드")
 def upload_video(
         video_data: VideoCreate = Depends(VideoCreate.as_form),
         file: UploadFile = File(...),
