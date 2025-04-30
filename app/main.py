@@ -59,7 +59,7 @@ app.include_router(
 app.include_router(
     instructor_auth_router.router,
     prefix="/api/v1/instructors-auth",
-    tags=["instructors"]
+    tags=["Authentication"]
 )
 
 app.include_router(
