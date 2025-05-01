@@ -80,3 +80,4 @@ def update_video_visibility(db: Session, instructor_id: int, req: VideoVisibilit
     db.commit()
     db.refresh(video)
     return VideoVisibilityUpdateResponse(id=video.id, is_public=video.is_public, message="영상 공개여부가 변경되었습니다.")
+

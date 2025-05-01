@@ -1,6 +1,12 @@
 from pydantic import BaseModel
 from typing import Optional, List
 
+class AdminLectureCreate(BaseModel):
+    name: str
+    instructor_id: int
+    schedule: str | None = None
+    classroom: str | None = None
+
 class LectureCreate(BaseModel):
     name: str
 
@@ -8,6 +14,8 @@ class LectureCreateResponse(BaseModel):
     id: int
     name: str
     instructor_id: int
+    schedule: str | None = None
+    classroom: str | None = None
     message: Optional[str] = None
 
 class MyLectureInfo(BaseModel):
