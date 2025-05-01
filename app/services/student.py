@@ -6,6 +6,7 @@ from app.models.lecture import Lecture
 from app.models.instructor import Instructor
 from app.models.video import Video
 from app.models.student import Student
+from app.models.watch_history import WatchHistory
 from app.schemas.student import (
     EnrollmentRequest, EnrollmentResponse,
     EnrollmentCancelRequest, EnrollmentCancelResponse,
@@ -74,13 +75,21 @@ def get_lecture_videos_for_student(db: Session, student_uid: str, lecture_id: in
 
     # 2. 영상 리스트 반환 (공개 영상만)
     videos = db.query(Video).filter(Video.lecture_id == lecture_id, Video.is_public == 1).order_by(Video.index).all()
+    video_ids = [v.id for v in videos]
+    # 3. 학생별 시청 진척도 조회
+    watch_histories = db.query(WatchHistory).filter(
+        WatchHistory.student_uid == student_uid,
+        WatchHistory.video_id.in_(video_ids)
+    ).all()
+    percent_map = {h.video_id: h.watched_percent for h in watch_histories}
     return [
         LectureVideoInfo(
             id=video.id,
             index=video.index,
             title=video.title,
             duration=video.duration,
-            upload_at=str(video.upload_at)
+            upload_at=str(video.upload_at),
+            watched_percent=percent_map.get(video.id, 0)
         ) for video in videos
     ]
 
@@ -97,8 +106,14 @@ def get_video_link_for_student(db: Session, student_uid: str, video_id: int) -> 
     ).first()
     if not enrolled:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="해당 강의에 수강신청되어 있지 않습니다.")
-    # 3. s3_link 반환
-    return VideoLinkResponse(s3_link=video.s3_link)
+    # 3. 시청 진척도 조회
+    history = db.query(WatchHistory).filter(
+        WatchHistory.student_uid == student_uid,
+        WatchHistory.video_id == video_id
+    ).first()
+    watched_percent = history.watched_percent if history else 0
+    # 4. s3_link, watched_percent 반환
+    return VideoLinkResponse(s3_link=video.s3_link, watched_percent=watched_percent)
 
 def get_student_profile(db: Session, student_uid: str) -> StudentProfileResponse:
     student = db.query(Student).filter(Student.uid == student_uid).first()

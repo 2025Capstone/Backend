@@ -46,6 +46,7 @@ class LectureVideoInfo(BaseModel):
     title: str
     duration: int
     upload_at: str
+    watched_percent : int
 
 class LectureVideoListResponse(BaseModel):
     videos: List[LectureVideoInfo]
@@ -55,6 +56,7 @@ class VideoLinkRequest(BaseModel):
 
 class VideoLinkResponse(BaseModel):
     s3_link: str
+    watched_percent: int
 
 class StudentProfileResponse(BaseModel):
     email: str
