@@ -12,3 +12,12 @@ class Video(Base):
     upload_at = Column(TIMESTAMP, server_default=func.now())
     index = Column(Integer, nullable=False)  # 영상 순서
     is_public = Column(Integer, nullable=False, default=1)  # 영상 공개 여부(1=공개, 0=비공개)
+
+class VideoWatchHistory(Base):
+    __tablename__ = "video_watch_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_uid = Column(String(128), ForeignKey("student.uid"), nullable=False, index=True)
+    video_id = Column(Integer, ForeignKey("video.id"), nullable=False, index=True)
+    watched_percent = Column(Integer, nullable=False, default=0)  # 0~100
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())

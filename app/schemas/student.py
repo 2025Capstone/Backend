@@ -66,3 +66,10 @@ class StudentNameUpdateRequest(BaseModel):
 class StudentNameUpdateResponse(BaseModel):
     message: str
     name: str | None
+
+class VideoProgressUpdateRequest(BaseModel):
+    video_id: int
+    watched_percent: int  # 0~100
+
+class VideoProgressUpdateResponse(BaseModel):
+    message: str

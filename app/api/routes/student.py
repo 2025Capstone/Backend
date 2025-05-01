@@ -1,23 +1,28 @@
 from fastapi import APIRouter, Depends, Body
-
+from fastapi.exceptions import HTTPException
+from sqlalchemy import func
 from app.models.instructor import Instructor
 from app.models.lecture import Lecture
+from app.models.video import Video
+from app.models.enrollment import Enrollment
+from app.models.watch_history import WatchHistory
 from app.schemas.lecture import LectureListResponse
-from app.services.auth_service import get_current_student
-from sqlalchemy.orm import Session
-from app.dependencies.db import get_db
-from app.dependencies.auth import get_current_student_uid
-from app.services.student import (
-    get_enrolled_lectures_for_student, get_lecture_videos_for_student, get_video_link_for_student, get_student_profile,
-    update_student_name, cancel_enrollment, enroll_student_in_lecture
-)
 from app.schemas.student import (
     LectureVideoListRequest, LectureVideoListResponse,
     VideoLinkRequest, VideoLinkResponse,
     StudentProfileResponse,
     StudentNameUpdateRequest, StudentNameUpdateResponse,
-    EnrollmentCancelRequest, EnrollmentCancelResponse, EnrollmentResponse, EnrollmentRequest
+    EnrollmentCancelRequest, EnrollmentCancelResponse, EnrollmentResponse, EnrollmentRequest,
+    VideoProgressUpdateRequest, VideoProgressUpdateResponse
 )
+from app.services.auth_service import get_current_student
+from app.services.student import (
+    get_enrolled_lectures_for_student, get_lecture_videos_for_student, get_video_link_for_student, get_student_profile,
+    update_student_name, cancel_enrollment, enroll_student_in_lecture
+)
+from sqlalchemy.orm import Session
+from app.dependencies.db import get_db
+from app.dependencies.auth import get_current_student_uid
 
 router = APIRouter(
     dependencies=[Depends(get_current_student)]
@@ -85,3 +90,38 @@ def set_my_name(
     """
     return update_student_name(db, student_uid, req.name)
 
+@router.post("/lecture/video/progress", response_model=VideoProgressUpdateResponse, summary="영상 진척도 기록")
+def update_video_progress(
+    req: VideoProgressUpdateRequest = Body(...),
+    db: Session = Depends(get_db),
+    student_uid: str = Depends(get_current_student_uid)
+):
+    # 1. 영상 조회
+    video = db.query(Video).filter(Video.id == req.video_id, Video.is_public == 1).first()
+    if not video:
+        raise HTTPException(status_code=404, detail="해당 영상이 존재하지 않거나 비공개 상태입니다.")
+    # 2. 수강신청 여부 확인
+    enrollment = db.query(Enrollment).filter(
+        Enrollment.student_uid == student_uid,
+        Enrollment.lecture_id == video.lecture_id
+    ).first()
+    if not enrollment:
+        raise HTTPException(status_code=403, detail="해당 강의에 수강신청되어 있지 않습니다.")
+    # 3. 진척도 기록 (upsert)
+    history = db.query(WatchHistory).filter(
+        WatchHistory.student_uid == student_uid,
+        WatchHistory.video_id == req.video_id
+    ).first()
+    if history:
+        history.timestamp = func.now()
+        history.watched_percent = max(getattr(history, 'watched_percent', 0), req.watched_percent)
+    else:
+        history = WatchHistory(
+            student_uid=student_uid,
+            video_id=req.video_id,
+            timestamp=func.now(),
+            watched_percent=req.watched_percent
+        )
+        db.add(history)
+    db.commit()
+    return VideoProgressUpdateResponse(message="진척도가 저장되었습니다.")
