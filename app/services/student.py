@@ -43,7 +43,9 @@ def get_enrolled_lectures_for_student(db: Session, student_uid: str) -> List[dic
         db.query(
             Enrollment.lecture_id,
             Lecture.name.label('lecture_name'),
-            Instructor.name.label('instructor_name')
+            Instructor.name.label('instructor_name'),
+            Lecture.classroom,
+            Lecture.schedule
         )
         .join(Lecture, Enrollment.lecture_id == Lecture.id)
         .join(Instructor, Lecture.instructor_id == Instructor.id)
@@ -54,7 +56,9 @@ def get_enrolled_lectures_for_student(db: Session, student_uid: str) -> List[dic
         {
             "lecture_id": row.lecture_id,
             "lecture_name": row.lecture_name,
-            "instructor_name": row.instructor_name
+            "instructor_name": row.instructor_name,
+            "classroom": row.classroom,
+            "schedule": row.schedule
         }
         for row in results
     ]

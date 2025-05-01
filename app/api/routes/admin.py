@@ -7,7 +7,7 @@ from app.services.admin_service import create_lecture_by_admin
 from app.dependencies.admin_auth import  get_current_admin_token
 from app.schemas.instructor import AdminLectureCreate, LectureCreateResponse, BulkEnrollRequest, BulkEnrollResponse
 from app.services.instructor import bulk_enroll_students
-
+from app.services.auth_service import get_all_instructors, get_all_students
 router = APIRouter(
     dependencies=[Depends(get_current_admin_token)]
 )
@@ -51,3 +51,25 @@ def admin_bulk_enroll_students_api(
     """
     result = bulk_enroll_students(db, req.lecture_id, req.student_uid_list)
     return BulkEnrollResponse(**result)
+
+
+@router.get("/instructors", summary="모든 강의자 정보 조회(관리자)")
+def get_all_instructors_api(db: Session = Depends(get_db)):
+    """
+    DB에 등록된 모든 강의자 정보를 반환합니다.
+    비밀번호(password)는 제외합니다.
+    """
+    instructors = get_all_instructors(db)
+    return {"instructors": [
+        {k: v for k, v in i.__dict__.items() if k != "password" and not k.startswith("_sa_instance_state")}
+        for i in instructors
+    ]}
+
+
+@router.get("/students", summary="모든 학생 정보 조회(관리자)")
+def get_all_students_api(db: Session = Depends(get_db)):
+    """
+    DB에 등록된 모든 학생 정보를 반환합니다.
+    """
+    students = get_all_students(db)
+    return {"students": [s.__dict__ for s in students]}

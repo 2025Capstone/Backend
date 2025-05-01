@@ -76,6 +76,21 @@ def handle_student_authentication(
     )
 
 
+def get_all_instructors(db: Session):
+    """
+    DB에 등록된 모든 강의자 정보를 반환합니다.
+    """
+    from app.models.instructor import Instructor
+    return db.query(Instructor).all()
+
+
+def get_all_students(db: Session):
+    """
+    DB에 등록된 모든 학생 정보를 반환합니다.
+    """
+    from app.models.student import Student
+    return db.query(Student).all()
+
 
 bearer_scheme = HTTPBearer()
 
