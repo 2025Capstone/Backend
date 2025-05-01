@@ -8,7 +8,7 @@ class FaceLandmarksModelAttention(nn.Module):
         super(FaceLandmarksModelAttention, self).__init__()
         self.embedding = nn.Linear(input_dim, hidden_size)
         self.transformer = TransformerEncoder(
-            TransformerEncoderLayer(hidden_size, num_heads, dim_feedforward=256, dropout=0.1),
+            TransformerEncoderLayer(hidden_size, num_heads, dim_feedforward=256, dropout=0.1, batch_first=True),
             num_layers
         )
         self.fc1 = nn.Linear(hidden_size, 64)
