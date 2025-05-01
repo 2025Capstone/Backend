@@ -11,6 +11,8 @@ def authenticate_instructor(db: Session, email: str, password: str) -> Instructo
     instructor = db.query(Instructor).filter(Instructor.email == email).first()
     if not instructor or not bcrypt.verify(password, instructor.password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password.")
+    if instructor.is_approved != 1:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="관리자 승인 대기 중입니다.")
 
     payload = {"sub": str(instructor.id)}
     access_token = create_instructor_access_token(payload)

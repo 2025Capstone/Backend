@@ -11,6 +11,8 @@ from app.api.routes import websocket as websocket_router # websocket 라우터 �
 from app.api.routes import instructor_auth as instructor_auth_router # instructor 라우터 import
 from app.api.routes import instructor as instructor_router # instructor 라우터 import
 from app.api.routes import student as student_router # student 라우터 import
+from app.api.routes import admin as admin_router # admin 라우터 import
+
 
 # --- 미들웨어 import ---
 from fastapi.middleware.cors import CORSMiddleware
@@ -60,6 +62,12 @@ app.include_router(
     instructor_auth_router.router,
     prefix="/api/v1/instructors-auth",
     tags=["Authentication"]
+)
+
+app.include_router(
+    admin_router.router,
+    prefix="/api/v1/admin",
+    tags=["admin"]
 )
 
 app.include_router(

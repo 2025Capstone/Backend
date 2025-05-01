@@ -13,7 +13,8 @@ def create_instructor(db: Session, instructor_in: InstructorCreate) -> Instructo
     new_instructor = Instructor(
         name=instructor_in.name,
         email=instructor_in.email,
-        password=hashed_password
+        password=hashed_password,
+        is_approved=0  # 회원가입 시 기본값 0
     )
     db.add(new_instructor)
     db.commit()
@@ -24,3 +25,18 @@ def create_instructor(db: Session, instructor_in: InstructorCreate) -> Instructo
         email=new_instructor.email,
         message="Instructor successfully registered."
     )
+
+def approve_instructor_by_id(db: Session, instructor_id: int):
+    instructor = db.query(Instructor).filter(Instructor.id == instructor_id).first()
+    if not instructor:
+        raise HTTPException(status_code=404, detail="Instructor not found.")
+    instructor.is_approved = 1
+    db.commit()
+    db.refresh(instructor)
+    return {
+        "id": instructor.id,
+        "name": instructor.name,
+        "email": instructor.email,
+        "is_approved": instructor.is_approved,
+        "message": "Instructor approved successfully."
+    }

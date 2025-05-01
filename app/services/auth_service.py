@@ -14,6 +14,17 @@ from app.dependencies.db import get_db
 from app.services.student_service import get_student_by_uid
 from app.core.config import settings
 
+# 관리자 비밀번호 해시 검증 함수
+from passlib.hash import bcrypt
+import logging
+logger = logging.getLogger("admin_auth")
+
+def validate_admin_hash(password: str, hash: str) -> bool:
+    try:
+        return bcrypt.verify(password, hash)
+    except Exception as e:
+        logger.error(f"비밀번호 검증 실패: {e}")
+        return False
 
 def handle_student_authentication(
         db: Session,
@@ -63,7 +74,6 @@ def handle_student_authentication(
         access_token=access_token,
         refresh_token=refresh_token
     )
-
 
 
 

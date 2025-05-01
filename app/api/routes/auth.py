@@ -1,6 +1,7 @@
+from app.schemas.admin import AdminAuthResponse, UserRoleResponse, UserRoleRequest, AdminLoginRequest
 from app.schemas.student import StudentAuthResponse
 from app.dependencies.firebase_deps import get_verified_firebase_user
-from app.services.auth_service import handle_student_authentication
+from app.services.auth_service import handle_student_authentication, validate_admin_hash
 from fastapi import APIRouter, Depends, Body, HTTPException, status
 from sqlalchemy.orm import Session
 from app.dependencies.db import get_db
@@ -19,29 +20,8 @@ from app.models.instructor import Instructor
 
 logger = logging.getLogger(__name__)
 
-def validate_admin_hash(password: str, hash: str) -> bool:
-    try:
-        return bcrypt.verify(password, hash)
-    except Exception as e:
-        logger.error(f"비밀번호 검증 실패: {e}")
-        return False
-
 router = APIRouter()
 
-class AdminLoginRequest(BaseModel):
-    username: str
-    password: str
-
-class AdminAuthResponse(BaseModel):
-    access_token: str
-    refresh_token: str
-    message: str
-
-class UserRoleRequest(BaseModel):
-    email: str
-
-class UserRoleResponse(BaseModel):
-    role: str  # 'student', 'instructor', 'admin', 'none'
 
 @router.post(
     "/verify-token",
