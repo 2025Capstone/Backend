@@ -9,3 +9,4 @@ class Student(Base):
     uid = Column(String(128), primary_key=True, index=True)
     name = Column(String(255), nullable=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
+    profile_image_url = Column(String(512), nullable=True, comment="S3에 저장된 프로필 이미지 URL")

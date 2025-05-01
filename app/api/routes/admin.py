@@ -6,7 +6,7 @@ from app.services.instructor_service import approve_instructor_by_id
 from app.services.admin_service import create_lecture_by_admin
 from app.dependencies.admin_auth import  get_current_admin_token
 from app.schemas.instructor import AdminLectureCreate, LectureCreateResponse, BulkEnrollRequest, BulkEnrollResponse
-from app.services.instructor import bulk_enroll_students
+from app.services.instructor import bulk_enroll_students, get_unapproved_instructors
 from app.services.auth_service import get_all_instructors, get_all_students
 router = APIRouter(
     dependencies=[Depends(get_current_admin_token)]
@@ -60,6 +60,19 @@ def get_all_instructors_api(db: Session = Depends(get_db)):
     비밀번호(password)는 제외합니다.
     """
     instructors = get_all_instructors(db)
+    return {"instructors": [
+        {k: v for k, v in i.__dict__.items() if k != "password" and not k.startswith("_sa_instance_state")}
+        for i in instructors
+    ]}
+
+
+@router.get("/instructors/unapproved", summary="미승인 강의자 리스트 조회(관리자)")
+def get_unapproved_instructors_api(db: Session = Depends(get_db)):
+    """
+    아직 승인되지 않은(관리자 승인 대기중) 강의자 리스트를 반환합니다.
+    비밀번호(password)는 제외합니다.
+    """
+    instructors = get_unapproved_instructors(db)
     return {"instructors": [
         {k: v for k, v in i.__dict__.items() if k != "password" and not k.startswith("_sa_instance_state")}
         for i in instructors

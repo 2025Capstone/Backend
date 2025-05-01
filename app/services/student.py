@@ -16,6 +16,20 @@ from app.schemas.student import (
     StudentNameUpdateRequest, StudentNameUpdateResponse
 )
 
+import boto3
+from botocore.exceptions import NoCredentialsError
+from app.core.config import settings
+from uuid import uuid4
+from fastapi import UploadFile
+import os
+
+s3_client = boto3.client(
+    "s3",
+    aws_access_key_id=settings.AWS_ACCESS_KEY,
+    aws_secret_access_key=settings.AWS_SECRET_KEY,
+    region_name=settings.AWS_REGION
+)
+
 class EnrolledLectureInfo:
     lecture_id: int
     lecture_name: str
@@ -119,7 +133,11 @@ def get_student_profile(db: Session, student_uid: str) -> StudentProfileResponse
     student = db.query(Student).filter(Student.uid == student_uid).first()
     if not student:
         raise HTTPException(status_code=404, detail="학생 정보를 찾을 수 없습니다.")
-    return StudentProfileResponse(email=student.email, name=student.name)
+    return StudentProfileResponse(
+        email=student.email,
+        name=student.name,
+        profile_image_url=student.profile_image_url
+    )
 
 def update_student_name(db: Session, student_uid: str, name: str) -> StudentNameUpdateResponse:
     # 입력값 검증
@@ -136,6 +154,27 @@ def update_student_name(db: Session, student_uid: str, name: str) -> StudentName
     db.commit()
     db.refresh(student)
     return StudentNameUpdateResponse(message="이름이 성공적으로 변경되었습니다.", name=student.name)
+
+def upload_profile_image_to_s3(file: UploadFile) -> str:
+    """
+    멀티파트로 받은 이미지를 S3의 /profile_image/ 폴더에 업로드하고, S3 URL을 반환합니다.
+    """
+    try:
+        ext = os.path.splitext(file.filename)[1]
+        unique_name = f"{uuid4().hex}{ext}"
+        s3_key = f"profile_image/{unique_name}"
+        s3_client.upload_fileobj(
+            file.file,
+            settings.AWS_S3_BUCKET_NAME,
+            s3_key,
+            ExtraArgs={"ContentType": file.content_type}
+        )
+        s3_url = f"https://{settings.AWS_S3_BUCKET_NAME}.s3.{settings.AWS_REGION}.amazonaws.com/{s3_key}"
+        return s3_url
+    except NoCredentialsError:
+        raise HTTPException(status_code=500, detail="S3 인증 정보가 없습니다.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"프로필 이미지 업로드 실패: {str(e)}")
 
 def cancel_enrollment(db: Session, student_uid: str, lecture_id: int) -> EnrollmentCancelResponse:
     enrollment = db.query(Enrollment).filter(

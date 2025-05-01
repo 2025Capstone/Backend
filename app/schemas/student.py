@@ -61,6 +61,7 @@ class VideoLinkResponse(BaseModel):
 class StudentProfileResponse(BaseModel):
     email: str
     name: str | None
+    profile_image_url: str | None = None
 
 class StudentNameUpdateRequest(BaseModel):
     name: str

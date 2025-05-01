@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Body
+from fastapi import APIRouter, Depends, Body, UploadFile, File
 from fastapi.exceptions import HTTPException
 from sqlalchemy import func
 from app.models.instructor import Instructor
@@ -6,6 +6,7 @@ from app.models.lecture import Lecture
 from app.models.video import Video
 from app.models.enrollment import Enrollment
 from app.models.watch_history import WatchHistory
+from app.models.student import Student
 from app.schemas.lecture import LectureListResponse
 from app.schemas.student import (
     LectureVideoListRequest, LectureVideoListResponse,
@@ -18,7 +19,7 @@ from app.schemas.student import (
 from app.services.auth_service import get_current_student
 from app.services.student import (
     get_enrolled_lectures_for_student, get_lecture_videos_for_student, get_video_link_for_student, get_student_profile,
-    update_student_name, cancel_enrollment, enroll_student_in_lecture
+    update_student_name, cancel_enrollment, enroll_student_in_lecture, upload_profile_image_to_s3
 )
 from sqlalchemy.orm import Session
 from app.dependencies.db import get_db
@@ -125,3 +126,22 @@ def update_video_progress(
         db.add(history)
     db.commit()
     return VideoProgressUpdateResponse(message="진척도가 저장되었습니다.")
+
+@router.post("/profile/image", summary="프로필 사진 업로드 및 저장")
+def upload_my_profile_image(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    student_uid: str = Depends(get_current_student_uid)
+):
+    """
+    학생이 본인 프로필 사진을 업로드하면 S3에 저장 후, 해당 URL을 DB에 저장합니다.
+    """
+    s3_url = upload_profile_image_to_s3(file)
+    # DB에 저장
+    student = db.query(Student).filter(Student.uid == student_uid).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="학생 정보를 찾을 수 없습니다.")
+    student.profile_image_url = s3_url
+    db.commit()
+    db.refresh(student)
+    return {"profile_image_url": s3_url}

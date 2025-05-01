@@ -101,3 +101,10 @@ def bulk_enroll_students(db: Session, lecture_id: int, student_uid_list: list[st
         enrolled.append(uid)
     db.commit()
     return {"enrolled": enrolled, "already_enrolled": already_enrolled, "not_found": not_found}
+
+def get_unapproved_instructors(db: Session):
+    """
+    승인되지 않은(미승인) 강의자 리스트 반환
+    """
+    from app.models.instructor import Instructor
+    return db.query(Instructor).filter(Instructor.is_approved == 0).all()
