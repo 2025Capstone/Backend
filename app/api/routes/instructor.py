@@ -2,10 +2,10 @@ from fastapi import APIRouter, Depends, Body, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from app.dependencies.db import get_db
 from app.dependencies.auth import get_current_instructor_id, get_current_instructor
-from app.schemas.instructor import LectureCreate, LectureCreateResponse, MyLectureListResponse, LectureStudentListRequest, LectureStudentListResponse
+from app.schemas.instructor import LectureCreate, LectureCreateResponse, MyLectureListResponse, LectureStudentListRequest, LectureStudentListResponse, BulkEnrollRequest, BulkEnrollResponse
 from app.schemas.lecture import LectureVisibilityUpdateRequest, LectureVisibilityUpdateResponse
 from app.schemas.video import VideoResponse, VideoVisibilityUpdateRequest, VideoVisibilityUpdateResponse, VideoCreate
-from app.services.instructor import create_lecture_for_instructor, get_my_lectures, get_students_for_my_lecture, get_videos_for_my_lecture, update_video_visibility
+from app.services.instructor import create_lecture_for_instructor, get_my_lectures, get_students_for_my_lecture, get_videos_for_my_lecture, update_video_visibility, bulk_enroll_students
 from app.services.video_service import upload_video_to_s3
 from app.models.lecture import Lecture
 from app.models.video import Video
@@ -138,3 +138,15 @@ def upload_video(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/lecture/bulk-enroll", response_model=BulkEnrollResponse, summary="여러 학생 일괄 수강신청")
+def bulk_enroll_students_api(
+    req: BulkEnrollRequest = Body(...),
+    db: Session = Depends(get_db),
+    instructor_id: int = Depends(get_current_instructor_id)
+):
+    """
+    강의자가 여러 학생을 한 번에 수강신청시킴 (이미 수강신청된 학생은 건너뜀)
+    """
+    result = bulk_enroll_students(db, req.lecture_id, req.student_uid_list)
+    return BulkEnrollResponse(**result)

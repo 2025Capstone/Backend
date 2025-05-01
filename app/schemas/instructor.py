@@ -35,3 +35,12 @@ class LectureStudentInfo(BaseModel):
 
 class LectureStudentListResponse(BaseModel):
     students: List[LectureStudentInfo]
+
+class BulkEnrollRequest(BaseModel):
+    lecture_id: int
+    student_uid_list: list[str]
+
+class BulkEnrollResponse(BaseModel):
+    enrolled: list[str]
+    already_enrolled: list[str]
+    not_found: list[str]

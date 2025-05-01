@@ -81,3 +81,23 @@ def update_video_visibility(db: Session, instructor_id: int, req: VideoVisibilit
     db.refresh(video)
     return VideoVisibilityUpdateResponse(id=video.id, is_public=video.is_public, message="영상 공개여부가 변경되었습니다.")
 
+def bulk_enroll_students(db: Session, lecture_id: int, student_uid_list: list[str]) -> dict:
+    from app.models.enrollment import Enrollment
+    from app.models.student import Student
+    enrolled = []
+    already_enrolled = []
+    not_found = []
+    for uid in student_uid_list:
+        student = db.query(Student).filter(Student.uid == uid).first()
+        if not student:
+            not_found.append(uid)
+            continue
+        exists = db.query(Enrollment).filter(Enrollment.student_uid == uid, Enrollment.lecture_id == lecture_id).first()
+        if exists:
+            already_enrolled.append(uid)
+            continue
+        enrollment = Enrollment(student_uid=uid, lecture_id=lecture_id)
+        db.add(enrollment)
+        enrolled.append(uid)
+    db.commit()
+    return {"enrolled": enrolled, "already_enrolled": already_enrolled, "not_found": not_found}
