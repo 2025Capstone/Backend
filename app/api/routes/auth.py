@@ -1,7 +1,7 @@
 from app.schemas.admin import AdminAuthResponse, UserRoleResponse, UserRoleRequest, AdminLoginRequest
 from app.schemas.student import StudentAuthResponse
 from app.dependencies.firebase_deps import get_verified_firebase_user
-from app.services.auth_service import handle_student_authentication, validate_admin_hash
+from app.services.auth_service import handle_student_authentication, validate_admin_hash, create_student, StudentCreate
 from fastapi import APIRouter, Depends, Body, HTTPException, status
 from sqlalchemy.orm import Session
 from app.dependencies.db import get_db
@@ -17,6 +17,8 @@ from datetime import datetime, timedelta
 import jwt
 from app.models.student import Student
 from app.models.instructor import Instructor
+import firebase_admin
+from firebase_admin import auth as firebase_auth
 
 logger = logging.getLogger(__name__)
 
@@ -142,17 +144,33 @@ def get_user_role(
     req: UserRoleRequest = Body(...),
     db: Session = Depends(get_db)
 ):
-    # 1. 관리자 확인 (.env)
     admin_id = os.getenv("ADMIN_ID")
     if req.email == admin_id:
         return UserRoleResponse(role="admin")
-    # 2. 학생 확인
-    student = db.query(Student).filter_by(email=req.email).first()
-    if student:
-        return UserRoleResponse(role="student")
-    # 3. 강의자 확인
+    # 1. 강의자 확인
     instructor = db.query(Instructor).filter_by(email=req.email).first()
     if instructor:
         return UserRoleResponse(role="instructor")
+    # 2. 학생 확인 (DB)
+    student = db.query(Student).filter_by(email=req.email).first()
+    if student:
+        return UserRoleResponse(role="student")
+    # 3. 학생 확인 (파이어베이스)
+    try:
+        firebase_user = firebase_auth.get_user_by_email(req.email)
+        if firebase_user:
+            # DB에 저장
+            student_in_data = StudentCreate(
+                uid=firebase_user.uid,
+                email=firebase_user.email,
+                name=firebase_user.display_name or ""
+            )
+            create_student(db=db, student_in=student_in_data)
+            return UserRoleResponse(role="student")
+    except firebase_auth.UserNotFoundError:
+        pass
+    except Exception as e:
+        # firebase 연결 문제 등 기타 에러는 none 반환
+        pass
     # 4. 해당 없음
     return UserRoleResponse(role="none")
