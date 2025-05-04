@@ -45,3 +45,8 @@ instructor 테스트 코드
 ```bash
 PYTHONPATH=. pytest tests/test_instructor.py 
 ```
+
+
+# 영상 썸네일 추출을 위해 ffmpeg(시스템 패키지)가 필요합니다.
+# macOS: brew install ffmpeg
+# Ubuntu: sudo apt-get install ffmpeg

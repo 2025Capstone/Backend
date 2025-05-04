@@ -7,9 +7,14 @@ from app.schemas.lecture import LectureVisibilityUpdateRequest, LectureVisibilit
 from app.schemas.video import VideoResponse, VideoVisibilityUpdateRequest, VideoVisibilityUpdateResponse, VideoCreate
 from app.services.instructor import create_lecture_for_instructor, get_my_lectures, get_students_for_my_lecture, get_videos_for_my_lecture, update_video_visibility, bulk_enroll_students
 from app.services.video_service import upload_video_to_s3
+from app.services.student import upload_video_image_to_s3
 from app.models.lecture import Lecture
 from app.models.video import Video
 from app.utils.video_helpers import extract_video_duration
+from moviepy.editor import VideoFileClip
+import tempfile
+import PIL.Image
+import numpy as np
 
 router = APIRouter(
     dependencies=[Depends(get_current_instructor)]
@@ -100,6 +105,7 @@ def upload_video(
     - moviepy를 이용하여 영상 길이(duration) 추출
     - 해당 강의의 기존 영상 개수를 기반으로 영상 순서(index) 결정
     - AWS S3에 영상 업로드 후, S3 링크(s3_link) 획득
+    - 영상 5초 지점 썸네일 추출 및 S3 업로드
     - DB에 Video 레코드 생성 후 응답 반환
     - 강의자가 본인 강의에만 업로드할 수 있도록 검증
     """
@@ -115,13 +121,31 @@ def upload_video(
         video_count = db.query(Video).filter(Video.lecture_id == video_data.lecture_id).count()
         video_index = video_count + 1
         s3_link, unique_folder = upload_video_to_s3(file.file, file.filename)
+
+        # 썸네일 추출 및 S3 업로드
+        file.file.seek(0)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_video_file:
+            temp_video_file.write(file.file.read())
+            temp_video_path = temp_video_file.name
+        clip = VideoFileClip(temp_video_path)
+        frame_time = min(5, clip.duration-0.1) if clip.duration > 5 else clip.duration-0.1
+        frame = clip.get_frame(frame_time)
+        image = PIL.Image.fromarray(np.uint8(frame))
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_img_file:
+            image.save(temp_img_file, format="JPEG")
+            temp_img_file.seek(0)
+            image_bytes = temp_img_file.read()
+        video_image_url = upload_video_image_to_s3(image_bytes, ".jpg")
+        clip.close()
+
         new_video = Video(
             lecture_id=video_data.lecture_id,
             title=video_data.title,
             s3_link=s3_link,
             duration=int(duration),
             index=video_index,
-            is_public=1
+            is_public=1,
+            video_image_url=video_image_url
         )
         db.add(new_video)
         db.commit()
@@ -134,7 +158,8 @@ def upload_video(
             duration=new_video.duration,
             index=new_video.index,
             upload_at=str(new_video.upload_at) if new_video.upload_at else None,
-            is_public=new_video.is_public
+            is_public=new_video.is_public,
+            video_image_url=new_video.video_image_url
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

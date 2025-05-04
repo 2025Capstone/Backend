@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, TIMESTAMP, func
+from sqlalchemy.orm import relationship
 from app.db.base import Base
 
 class Video(Base):
@@ -12,6 +13,10 @@ class Video(Base):
     upload_at = Column(TIMESTAMP, server_default=func.now())
     index = Column(Integer, nullable=False)  # 영상 순서
     is_public = Column(Integer, nullable=False, default=1)  # 영상 공개 여부(1=공개, 0=비공개)
+    video_image_url = Column(String(1023), nullable=True)  # 영상 대표 이미지 URL
+
+    # Lecture 모델과의 관계 추가
+    lecture = relationship("Lecture", backref="videos")
 
 class VideoWatchHistory(Base):
     __tablename__ = "video_watch_history"

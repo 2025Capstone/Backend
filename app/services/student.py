@@ -22,6 +22,7 @@ from app.core.config import settings
 from uuid import uuid4
 from fastapi import UploadFile
 import os
+import io
 
 s3_client = boto3.client(
     "s3",
@@ -175,6 +176,26 @@ def upload_profile_image_to_s3(file: UploadFile) -> str:
         raise HTTPException(status_code=500, detail="S3 인증 정보가 없습니다.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"프로필 이미지 업로드 실패: {str(e)}")
+
+def upload_video_image_to_s3(image_file: bytes, ext: str) -> str:
+    """
+    영상 썸네일 이미지를 S3의 /video_image/ 폴더에 업로드하고, S3 URL을 반환합니다.
+    """
+    try:
+        unique_name = f"{uuid4().hex}{ext}"
+        s3_key = f"video_image/{unique_name}"
+        s3_client.upload_fileobj(
+            io.BytesIO(image_file),
+            settings.AWS_S3_BUCKET_NAME,
+            s3_key,
+            ExtraArgs={"ContentType": f"image/{ext.lstrip('.')}"}
+        )
+        s3_url = f"https://{settings.AWS_S3_BUCKET_NAME}.s3.{settings.AWS_REGION}.amazonaws.com/{s3_key}"
+        return s3_url
+    except NoCredentialsError:
+        raise HTTPException(status_code=500, detail="S3 인증 정보가 없습니다.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"비디오 이미지 업로드 실패: {str(e)}")
 
 def cancel_enrollment(db: Session, student_uid: str, lecture_id: int) -> EnrollmentCancelResponse:
     enrollment = db.query(Enrollment).filter(

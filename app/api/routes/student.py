@@ -145,3 +145,44 @@ def upload_my_profile_image(
     db.commit()
     db.refresh(student)
     return {"profile_image_url": s3_url}
+
+@router.get("/recent-incomplete-videos", summary="최근 시청기록 중 미완료 영상 10개 조회")
+def get_recent_incomplete_videos(
+    db: Session = Depends(get_db),
+    student_uid: str = Depends(get_current_student_uid)
+):
+    """
+    시청 완료하지 않은(95% 미만) 영상 중 최근 10개를 반환합니다.
+    - video_id, lecture_id, lecture_name, video_name, instructor_name, timestamp 반환
+    """
+    results = (
+        db.query(
+            WatchHistory.video_id,
+            Video.lecture_id,
+            Lecture.name.label("lecture_name"),
+            Video.title.label("video_name"),
+            Instructor.name.label("instructor_name"),
+            WatchHistory.timestamp,
+            Video.video_image_url
+        )
+        .join(Video, WatchHistory.video_id == Video.id)
+        .join(Lecture, Video.lecture_id == Lecture.id)
+        .join(Instructor, Lecture.instructor_id == Instructor.id)
+        .filter(WatchHistory.student_uid == student_uid)
+        .filter(WatchHistory.watched_percent < 95)
+        .order_by(WatchHistory.timestamp.desc())
+        .limit(10)
+        .all()
+    )
+    return [
+        {
+            "video_id": row.video_id,
+            "lecture_id": row.lecture_id,
+            "lecture_name": row.lecture_name,
+            "video_name": row.video_name,
+            "instructor_name": row.instructor_name,
+            "timestamp": row.timestamp,
+            "video_image_url": row.video_image_url
+        }
+        for row in results
+    ]
