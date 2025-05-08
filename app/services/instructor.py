@@ -1,11 +1,11 @@
 from sqlalchemy.orm import Session
-from fastapi import HTTPException, status
-from app.models.lecture import Lecture
-from app.models.student import Student
-from app.models.enrollment import Enrollment
 from app.schemas.instructor import LectureCreate, LectureCreateResponse, MyLectureInfo, LectureStudentListRequest, LectureStudentInfo
 from app.models.video import Video
 from app.schemas.video import VideoResponse, VideoVisibilityUpdateRequest, VideoVisibilityUpdateResponse
+from app.models.enrollment import Enrollment
+from app.models.student import Student
+from app.models.lecture import Lecture
+from fastapi import HTTPException, status
 
 def create_lecture_for_instructor(db: Session, instructor_id: int, lecture_in: LectureCreate) -> LectureCreateResponse:
     # 중복 체크: 같은 instructor가 같은 이름의 강의를 이미 개설했는지 확인
@@ -82,10 +82,6 @@ def update_video_visibility(db: Session, instructor_id: int, req: VideoVisibilit
     return VideoVisibilityUpdateResponse(id=video.id, is_public=video.is_public, message="영상 공개여부가 변경되었습니다.")
 
 def bulk_enroll_students(db: Session, instructor_id: int, lecture_id: int, student_uid_list: list[str]) -> dict:
-    from app.models.enrollment import Enrollment
-    from app.models.student import Student
-    from app.models.lecture import Lecture
-    from fastapi import HTTPException, status
     # 본인 강의인지 검증
     lecture = db.query(Lecture).filter(Lecture.id == lecture_id, Lecture.instructor_id == instructor_id).first()
     if not lecture:
@@ -107,6 +103,31 @@ def bulk_enroll_students(db: Session, instructor_id: int, lecture_id: int, stude
         enrolled.append(uid)
     db.commit()
     return {"enrolled": enrolled, "already_enrolled": already_enrolled, "not_found": not_found}
+
+def bulk_unenroll_students_for_instructor(db: Session, instructor_id: int, lecture_id: int, student_uid_list: list[str]) -> dict:
+    # 본인 강의인지 검증
+    lecture = db.query(Lecture).filter(Lecture.id == lecture_id, Lecture.instructor_id == instructor_id).first()
+    if not lecture:
+        raise HTTPException(status_code=403, detail="본인이 개설한 강의가 아닙니다.")
+    unenrolled = []
+    not_enrolled = []
+    not_found = []
+    for uid in student_uid_list:
+        student = db.query(Student).filter(Student.uid == uid).first()
+        if not student:
+            not_found.append(uid)
+            continue
+        enrollment = db.query(Enrollment).filter(
+            Enrollment.student_uid == uid,
+            Enrollment.lecture_id == lecture_id
+        ).first()
+        if not enrollment:
+            not_enrolled.append(uid)
+            continue
+        db.delete(enrollment)
+        unenrolled.append(uid)
+    db.commit()
+    return {"unenrolled": unenrolled, "not_enrolled": not_enrolled, "not_found": not_found}
 
 def get_unapproved_instructors(db: Session):
     """

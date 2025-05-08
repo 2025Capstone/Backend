@@ -16,7 +16,8 @@ import tempfile
 import PIL.Image
 import numpy as np
 from app.services.auth_service import get_all_students
-
+from app.schemas.instructor import BulkUnenrollRequest, BulkUnenrollResponse
+from app.services.instructor import bulk_unenroll_students_for_instructor
 
 router = APIRouter(
     dependencies=[Depends(get_current_instructor)]
@@ -30,6 +31,21 @@ def get_all_students_for_instructor(db: Session = Depends(get_db)):
     """
     students = get_all_students(db)
     return {"students": [s.__dict__ for s in students]}
+
+
+
+@router.post("/lecture/unenroll", response_model=BulkUnenrollResponse, summary="여러 학생 일괄 수강취소 (강의자)")
+def bulk_unenroll_students_api(
+    req: BulkUnenrollRequest = Body(...),
+    db: Session = Depends(get_db),
+    instructor_id: int = Depends(get_current_instructor_id)
+):
+    """
+    강의자가 본인이 개설한 강의에 대해 여러 학생을 한 번에 수강취소시킴 (이미 수강신청 안된 학생은 건너뜀)
+    """
+    result = bulk_unenroll_students_for_instructor(db, instructor_id, req.lecture_id, req.student_uid_list)
+    return BulkUnenrollResponse(**result)
+
 
 
 @router.get("/lectures", response_model=MyLectureListResponse, summary="내 강의 목록 조회")
