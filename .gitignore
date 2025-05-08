@@ -4,3 +4,4 @@ temp.txt
 .secret
 __pycache__
 .venv
+alembic/versions

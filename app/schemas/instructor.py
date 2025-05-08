@@ -44,3 +44,12 @@ class BulkEnrollResponse(BaseModel):
     enrolled: list[str]
     already_enrolled: list[str]
     not_found: list[str]
+
+class BulkUnenrollRequest(BaseModel):
+    lecture_id: int
+    student_uid_list: list[str]
+
+class BulkUnenrollResponse(BaseModel):
+    unenrolled: list[str]
+    not_enrolled: list[str]
+    not_found: list[str]

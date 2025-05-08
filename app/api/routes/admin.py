@@ -5,8 +5,8 @@ from app.schemas.instructor_auth import  InstructorCreateResponse
 from app.services.instructor_service import approve_instructor_by_id
 from app.services.admin_service import create_lecture_by_admin
 from app.dependencies.admin_auth import  get_current_admin_token
-from app.schemas.instructor import AdminLectureCreate, LectureCreateResponse, BulkEnrollRequest, BulkEnrollResponse
-from app.services.instructor import bulk_enroll_students, get_unapproved_instructors
+from app.schemas.instructor import AdminLectureCreate, LectureCreateResponse, BulkEnrollRequest, BulkEnrollResponse, BulkUnenrollRequest, BulkUnenrollResponse
+from app.services.instructor import bulk_enroll_students, bulk_unenroll_students, get_unapproved_instructors
 from app.services.auth_service import get_all_instructors, get_all_students
 router = APIRouter(
     dependencies=[Depends(get_current_admin_token)]
@@ -51,6 +51,17 @@ def admin_bulk_enroll_students_api(
     """
     result = bulk_enroll_students(db, req.lecture_id, req.student_uid_list)
     return BulkEnrollResponse(**result)
+
+@router.post("/lecture/unenroll", response_model=BulkUnenrollResponse, summary="여러 학생 일괄 수강취소 (관리자)")
+def admin_bulk_unenroll_students_api(
+    req: BulkUnenrollRequest = Body(...),
+    db: Session = Depends(get_db)
+):
+    """
+    관리자가 여러 학생을 한 번에 수강취소시킴 (이미 수강신청 안된 학생은 건너뜀)
+    """
+    result = bulk_unenroll_students(db, req.lecture_id, req.student_uid_list)
+    return BulkUnenrollResponse(**result)
 
 
 @router.get("/instructors", summary="모든 강의자 정보 조회(관리자)")

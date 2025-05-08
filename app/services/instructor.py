@@ -102,6 +102,26 @@ def bulk_enroll_students(db: Session, lecture_id: int, student_uid_list: list[st
     db.commit()
     return {"enrolled": enrolled, "already_enrolled": already_enrolled, "not_found": not_found}
 
+def bulk_unenroll_students(db: Session, lecture_id: int, student_uid_list: list[str]) -> dict:
+    from app.models.enrollment import Enrollment
+    from app.models.student import Student
+    unenrolled = []
+    not_enrolled = []
+    not_found = []
+    for uid in student_uid_list:
+        student = db.query(Student).filter(Student.uid == uid).first()
+        if not student:
+            not_found.append(uid)
+            continue
+        enrollment = db.query(Enrollment).filter(Enrollment.student_uid == uid, Enrollment.lecture_id == lecture_id).first()
+        if not enrollment:
+            not_enrolled.append(uid)
+            continue
+        db.delete(enrollment)
+        unenrolled.append(uid)
+    db.commit()
+    return {"unenrolled": unenrolled, "not_enrolled": not_enrolled, "not_found": not_found}
+
 def get_unapproved_instructors(db: Session):
     """
     승인되지 않은(미승인) 강의자 리스트 반환
