@@ -15,10 +15,21 @@ from moviepy.editor import VideoFileClip
 import tempfile
 import PIL.Image
 import numpy as np
+from app.services.auth_service import get_all_students
+
 
 router = APIRouter(
     dependencies=[Depends(get_current_instructor)]
 )
+
+
+@router.get("/students", summary="모든 학생 정보 조회(강의자)")
+def get_all_students_for_instructor(db: Session = Depends(get_db)):
+    """
+    DB에 등록된 모든 학생 정보를 반환합니다. (강의자용)
+    """
+    students = get_all_students(db)
+    return {"students": [s.__dict__ for s in students]}
 
 
 @router.get("/lectures", response_model=MyLectureListResponse, summary="내 강의 목록 조회")
