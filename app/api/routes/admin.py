@@ -3,10 +3,10 @@ from sqlalchemy.orm import Session
 from app.dependencies.db import get_db
 from app.schemas.instructor_auth import  InstructorCreateResponse
 from app.services.instructor_service import approve_instructor_by_id
-from app.services.admin_service import create_lecture_by_admin
+from app.services.admin_service import create_lecture_by_admin, bulk_enroll_students_admin, bulk_unenroll_students_admin
 from app.dependencies.admin_auth import  get_current_admin_token
 from app.schemas.instructor import AdminLectureCreate, LectureCreateResponse, BulkEnrollRequest, BulkEnrollResponse, BulkUnenrollRequest, BulkUnenrollResponse
-from app.services.instructor import bulk_enroll_students, bulk_unenroll_students, get_unapproved_instructors
+from app.services.instructor import get_unapproved_instructors
 from app.services.auth_service import get_all_instructors, get_all_students
 router = APIRouter(
     dependencies=[Depends(get_current_admin_token)]
@@ -49,7 +49,7 @@ def admin_bulk_enroll_students_api(
     """
     관리자가 여러 학생을 한 번에 수강신청시킴 (이미 수강신청된 학생은 건너뜀)
     """
-    result = bulk_enroll_students(db, req.lecture_id, req.student_uid_list)
+    result = bulk_enroll_students_admin(db, req.lecture_id, req.student_uid_list)
     return BulkEnrollResponse(**result)
 
 @router.post("/lecture/unenroll", response_model=BulkUnenrollResponse, summary="여러 학생 일괄 수강취소 (관리자)")
@@ -60,7 +60,7 @@ def admin_bulk_unenroll_students_api(
     """
     관리자가 여러 학생을 한 번에 수강취소시킴 (이미 수강신청 안된 학생은 건너뜀)
     """
-    result = bulk_unenroll_students(db, req.lecture_id, req.student_uid_list)
+    result = bulk_unenroll_students_admin(db, req.lecture_id, req.student_uid_list)
     return BulkUnenrollResponse(**result)
 
 

@@ -173,5 +173,5 @@ def bulk_enroll_students_api(
     """
     강의자가 여러 학생을 한 번에 수강신청시킴 (이미 수강신청된 학생은 건너뜀)
     """
-    result = bulk_enroll_students(db, req.lecture_id, req.student_uid_list)
+    result = bulk_enroll_students(db, instructor_id, req.lecture_id, req.student_uid_list)
     return BulkEnrollResponse(**result)
