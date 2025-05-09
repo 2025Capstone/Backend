@@ -58,6 +58,16 @@ def bulk_enroll_students_admin(db: Session, lecture_id: int, student_uid_list: l
     db.commit()
     return {"enrolled": enrolled, "already_enrolled": already_enrolled, "not_found": not_found}
 
+def get_all_lectures_with_instructor_name(db: Session):
+    lectures = db.query(Lecture).join(Instructor).all()
+    return [
+        {
+            "id": lec.id,
+            "name": lec.name,
+            "instructor_name": lec.instructor.name if lec.instructor else None
+        } for lec in lectures
+    ]
+
 def bulk_unenroll_students_admin(db: Session, lecture_id: int, student_uid_list: list[str]) -> dict:
     from app.models.enrollment import Enrollment
     from app.models.student import Student

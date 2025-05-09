@@ -3,9 +3,10 @@ from sqlalchemy.orm import Session
 from app.dependencies.db import get_db
 from app.schemas.instructor_auth import  InstructorCreateResponse
 from app.services.instructor_service import approve_instructor_by_id
-from app.services.admin_service import create_lecture_by_admin, bulk_enroll_students_admin, bulk_unenroll_students_admin
+from app.services.admin_service import create_lecture_by_admin, bulk_enroll_students_admin, bulk_unenroll_students_admin, get_all_lectures_with_instructor_name
 from app.dependencies.admin_auth import  get_current_admin_token
 from app.schemas.instructor import AdminLectureCreate, LectureCreateResponse, BulkEnrollRequest, BulkEnrollResponse, BulkUnenrollRequest, BulkUnenrollResponse
+from app.schemas.lecture import LectureListResponse, LectureBase
 from app.services.instructor import get_unapproved_instructors
 from app.services.auth_service import get_all_instructors, get_all_students
 router = APIRouter(
@@ -97,3 +98,12 @@ def get_all_students_api(db: Session = Depends(get_db)):
     """
     students = get_all_students(db)
     return {"students": [s.__dict__ for s in students]}
+
+
+@router.get("/lectures/all", response_model=LectureListResponse, summary="모든 강의 정보 조회(관리자)")
+def get_all_lectures_api(db: Session = Depends(get_db)):
+    """
+    현재 개설되어있는 모든 강의의 id, 강의 이름, 강의자 이름을 반환합니다.
+    """
+    lectures = get_all_lectures_with_instructor_name(db)
+    return {"lectures": lectures}
