@@ -64,6 +64,8 @@ def get_all_lectures_with_instructor_name(db: Session):
         {
             "id": lec.id,
             "name": lec.name,
+            "schedule": lec.schedule,
+            "classroom": lec.classroom,
             "instructor_name": lec.instructor.name if lec.instructor else None
         } for lec in lectures
     ]
