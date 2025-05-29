@@ -4,6 +4,8 @@ class LectureBase(BaseModel):
     id: int
     name: str
     instructor_name: str
+    schedule: str
+    classroom: str
 
     class Config:
         from_attributes = True
