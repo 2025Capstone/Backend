@@ -21,3 +21,6 @@ bcrypt
 passlib[bcrypt]
 pytest
 httpx
+torch_geometric
+pandas
+uvicorn[standard]

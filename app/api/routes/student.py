@@ -1,4 +1,22 @@
-from fastapi import APIRouter, Depends, Body, UploadFile, File
+import glob
+import time
+
+from fastapi import APIRouter, Depends, Body, UploadFile, File, WebSocket, WebSocketDisconnect
+from uuid import uuid4
+import os
+import numpy as np
+import torch
+from app.schemas.drowsiness import (
+    DrowsinessStartRequest, DrowsinessStartResponse,
+    DrowsinessVerifyRequest, DrowsinessVerifyResponse,
+    DrowsinessFinishRequest, DrowsinessFinishResponse, DrowsinessPrediction
+)
+from app.ml.pipeline import MultimodalFatigueModel
+from app.ml.face_GNN import FaceSTGCNModel
+from app.ml.hrv_embedding import HRVFeatureEmbedder
+# from app.ml.data_loader import ... # 실제 CSV 파싱 필요시
+# from app.ml import ... # edge_index 등 필요시 import
+
 from fastapi.exceptions import HTTPException
 from sqlalchemy import func
 from app.models.instructor import Instructor
@@ -186,3 +204,189 @@ def get_recent_incomplete_videos(
         }
         for row in results
     ]
+
+# =========================
+# 졸음 탐지 플로우 API
+# =========================
+
+import pandas as pd
+
+from sqlalchemy.orm import Session as DBSession
+from fastapi import Depends
+from app.dependencies.db import get_db
+
+
+
+import random
+
+from app.models.drowsiness_session import DrowsinessSession
+
+@router.post("/drowsiness/start", response_model=DrowsinessStartResponse, summary="졸음 탐지 세션 시작")
+def start_drowsiness_detection(
+    req: DrowsinessStartRequest = Body(...),
+    db: Session = Depends(get_db),
+    student_uid: str = Depends(get_current_student_uid)
+):
+    """
+    졸음 탐지 세션을 시작하고, 6자리 인증코드를 생성하여 클라이언트에 반환합니다.
+    클라이언트는 이 코드를 웨어러블 디바이스에 입력해야 합니다.
+    """
+    session_id = str(uuid4())
+    auth_code = f"{random.randint(0, 999999):06d}"
+    # DB에 세션 생성
+    session_obj = DrowsinessSession(
+        session_id=session_id,
+        student_uid=student_uid,
+        video_id=req.video_id,
+        auth_code=auth_code,
+        verified=False
+    )
+    db.add(session_obj)
+    db.commit()
+    return DrowsinessStartResponse(session_id=session_id, message=f"세션이 시작되었습니다. 인증코드: {auth_code}")
+
+@router.post("/drowsiness/verify", response_model=DrowsinessVerifyResponse, summary="웨어러블 인증코드 검증")
+def verify_drowsiness_wearable(
+    req: DrowsinessVerifyRequest = Body(...),
+    db: Session = Depends(get_db),
+    student_uid: str = Depends(get_current_student_uid)
+):
+    """
+    웨어러블에서 입력한 인증코드를 검증합니다. (클라이언트와 웨어러블이 동일한 코드를 입력해야 연동 성공)
+    """
+    session_obj = db.query(DrowsinessSession).filter_by(session_id=req.session_id).first()
+    if not session_obj or session_obj.student_uid != student_uid:
+        raise HTTPException(status_code=404, detail="세션이 존재하지 않습니다.")
+    if req.code != session_obj.auth_code:
+        return DrowsinessVerifyResponse(session_id=req.session_id, verified=False, message="인증코드가 일치하지 않습니다.")
+    session_obj.verified = True
+    db.commit()
+    return DrowsinessVerifyResponse(session_id=req.session_id, verified=True, message="웨어러블 연동이 완료되었습니다.")
+
+from app.utils.drowsiness_data_utils import make_shard_and_pt
+from app.ml.data_loader import SessionSequenceDataset
+
+@router.post("/drowsiness/finish", response_model=DrowsinessFinishResponse)
+def finish_drowsiness_detection(
+    req: DrowsinessFinishRequest,
+    db: Session = Depends(get_db),
+    student_uid: str = Depends(get_current_student_uid)
+):
+    import torch
+    session_id = req.session_id
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../drowsiness_data'))
+    session_dir = os.path.join(base_dir, session_id)
+    if not os.path.isdir(session_dir):
+        raise HTTPException(status_code=404, detail="Landmark 데이터 디렉토리가 존재하지 않습니다.")
+    csv_files = glob.glob(os.path.join(session_dir, '*.csv'))
+    if not csv_files:
+        raise HTTPException(status_code=404, detail="Landmark 데이터 CSV 파일이 존재하지 않습니다.")
+
+    timeout, interval, waited = 120, 1, 0
+    while waited < timeout:
+        last_modified = max(os.path.getmtime(f) for f in csv_files)
+        elapsed = time.time() - last_modified
+        if elapsed >= 2:
+            break
+        print(f"Landmark 데이터 저장 중... (경과 {elapsed:.2f}s)")
+        time.sleep(interval)
+        waited += interval
+    else:
+        raise HTTPException(status_code=500, detail="Landmark 데이터 저장 대기 타임아웃.")
+
+    try:
+        pt_path = make_shard_and_pt(session_id, base_dir=base_dir, shard_size=150)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Landmark 데이터 병합/pt 변환 실패: {e}")
+
+    if pt_path and os.path.exists(pt_path):
+        try:
+            pt_data = torch.load(pt_path)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"PT 파일 로드 실패: {e}")
+    else:
+        raise HTTPException(status_code=404, detail="PT 파일이 존재하지 않습니다.")
+
+    edge_index_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../ml/edge_index_core.pt'))
+    try:
+        edge_index = torch.load(edge_index_path, map_location='cpu')
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"edge_index 로드 실패: {e}")
+
+    try:
+        SEQ_LEN, STRIDE = 12, 3
+        dataset = SessionSequenceDataset(session_dir, seq_len=SEQ_LEN, stride=STRIDE)
+        if len(dataset) == 0:
+            raise HTTPException(status_code=400, detail="1분 이상 시청하지 않아 분석이 불가능합니다.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"데이터셋 로딩 실패: {e}")
+
+    try:
+        model_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../ml/best_model.pt'))
+        model = MultimodalFatigueModel(num_classes=5)
+
+        # ✅ state_dict 추출 및 로드
+        checkpoint = torch.load(model_path, map_location='cpu')
+        if 'model' in checkpoint:
+            model.load_state_dict(checkpoint['model'])
+        else:
+            model.load_state_dict(checkpoint)
+        model.eval()
+
+        all_preds, all_mins = [], []
+        with torch.no_grad():
+            for idx in range(len(dataset)):
+                face, wear, _ = dataset[idx]
+                face = face.unsqueeze(0)
+                wear = wear.unsqueeze(0)
+                pred, aux = model(face, wear, edge_index)
+
+                # ✅ pred는 회귀값, conf는 1.0
+                lvl = float(pred.item())
+                conf = 1.0
+
+                all_preds.append(lvl)
+                all_mins.append(idx)
+
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"모델 예측 실패: {e}")
+
+    # === 졸음 수준 DB 저장 ===
+    from app.models.drowsiness_session import DrowsinessSession
+    from app.models.drowsiness_level import DrowsinessLevel
+
+    # session_id로 세션 정보 조회
+    session_obj = db.query(DrowsinessSession).filter_by(session_id=session_id).first()
+    if not session_obj:
+        raise HTTPException(status_code=404, detail="세션 정보를 찾을 수 없습니다.")
+    if session_obj.student_uid != student_uid:
+        raise HTTPException(status_code=403, detail="본인 세션이 아닙니다.")
+    video_id = session_obj.video_id
+
+    # 기존 데이터 삭제
+    db.query(DrowsinessLevel).filter_by(video_id=video_id, student_uid=student_uid).delete()
+    db.commit()
+
+    db.add_all([
+        DrowsinessLevel(
+            video_id=video_id,
+            student_uid=student_uid,
+            timestamp=i,
+            drowsiness_score=score
+        ) for i, score in enumerate(all_preds)
+    ])
+    db.commit()
+
+
+    prediction = DrowsinessPrediction(
+        session_id=session_id,
+        drowsiness_level=all_preds[-1],
+        confidence=conf,  # 마지막 conf=1.0
+        details={"minute": all_mins[-1], "all_preds": all_preds}
+    )
+    return DrowsinessFinishResponse(
+        session_id=session_id,
+        prediction=prediction,
+        message="졸음 예측이 완료되었습니다. (모든 1분 단위 예측)"
+    )

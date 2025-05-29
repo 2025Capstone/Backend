@@ -6,7 +6,8 @@ from app.db.base import Base
 class DrowsinessLevel(Base):
     __tablename__ = "drowsiness_level"
 
-    video_id = Column(Integer, ForeignKey("video.id"), primary_key=True)
-    student_uid = Column(String(128), ForeignKey("student.uid"), primary_key=True)
-    timestamp = Column(Integer, nullable=False)  # 영상 내 몇 초인지
-    drowsiness_score = Column(Float, nullable=False)  # 졸음 점수 (0~1)
+    id            = Column(Integer, primary_key=True, autoincrement=True, nullable=False)
+    video_id = Column(Integer, ForeignKey("video.id"), nullable=False)
+    student_uid = Column(String(128), ForeignKey("student.uid"), nullable=False)
+    timestamp = Column(Integer, nullable=False)  # 영상 내 몇 분인지
+    drowsiness_score = Column(Float, nullable=False)  # 졸음 점수 (1~5)
