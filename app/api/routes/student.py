@@ -201,7 +201,7 @@ def get_recent_incomplete_videos(
 
 
 # =========================
-# 졸음 탐지 플로우 API (수정됨)
+# 졸음 탐지 플로우 API
 # =========================
 
 @router.post("/drowsiness/start", response_model=DrowsinessStartResponse, summary="졸음 탐지 세션 시작",
@@ -220,7 +220,6 @@ def start_drowsiness_detection(
     try:
         from firebase_admin import db
 
-        # 1. 메인 세션 데이터 저장
         ref = db.reference(f"{session_id}")
         ref.set({
             "pairing": {
@@ -233,7 +232,6 @@ def start_drowsiness_detection(
             "PPG_Data": {}
         })
 
-        # 2. 인증 코드를 Key로 사용하는 인덱스 저장
         index_ref = db.reference(f"auth_code_index/{auth_code}")
         index_ref.set(session_id)
 
@@ -244,14 +242,9 @@ def start_drowsiness_detection(
                                    message="세션이 시작되었습니다. 웨어러블에 인증코드를 입력하세요.")
 
 
-@router.post(
-    "/drowsiness/verify",
-    response_model=DrowsinessVerifyResponse,
-    summary="[웨어러블용] 인증코드로 검증"
-    # <<< 인증이 필요 없으므로 dependencies 없음
-)
+@router.post("/drowsiness/verify", response_model=DrowsinessVerifyResponse, summary="[웨어러블용] 인증코드로 검증")
 def verify_drowsiness_from_wearable(
-        req: DrowsinessVerifyRequest,  # session_id는 무시하고 code만 사용
+        req: DrowsinessVerifyRequest,
 ):
     """
     웨어러블 기기에서 전송한 인증코드를 기반으로 세션을 찾아 연동하고, 세션 ID를 반환합니다.
@@ -260,30 +253,25 @@ def verify_drowsiness_from_wearable(
     try:
         from firebase_admin import db
 
-        # 1. 인덱스를 통해 session_id를 빠르게 조회
         index_ref = db.reference(f"auth_code_index/{req.code}")
         session_id = index_ref.get()
 
         if not session_id:
             raise HTTPException(status_code=404, detail="인증코드가 유효하지 않거나 만료되었습니다.")
 
-        # 2. 조회한 session_id로 실제 세션 데이터에 접근
         session_ref = db.reference(f"{session_id}/pairing")
         session_data = session_ref.get()
 
         if not session_data:
             raise HTTPException(status_code=404, detail="인덱스는 존재하지만, 해당 세션 데이터가 존재하지 않습니다.")
 
-        # 3. paired 상태 업데이트
         session_ref.update({"paired": True})
 
-        # 4. (권장) 사용된 인덱스 삭제
         index_ref.delete()
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Firebase 데이터 검증/업데이트 중 오류가 발생했습니다: {e}")
 
-    # 웨어러블이 앞으로 사용할 session_id를 응답에 포함
     return DrowsinessVerifyResponse(session_id=session_id, verified=True, message="웨어러블 연동이 완료되었습니다.")
 
 
@@ -295,22 +283,18 @@ def finish_drowsiness_detection(
 ):
     session_id = req.session_id
 
-    # 함수 내에서 db 모듈을 import합니다.
     from firebase_admin import db
 
     try:
         session_ref = db.reference(f"{session_id}")
         pairing_ref = session_ref.child("pairing")
-
         pairing_data = pairing_ref.get()
         if not pairing_data:
             raise HTTPException(status_code=404, detail="세션 정보를 찾을 수 없습니다.")
         if pairing_data.get("student_uid") != student_uid:
             raise HTTPException(status_code=403, detail="본인의 세션이 아닙니다.")
-
         pairing_ref.update({"stop": True})
         video_id = pairing_data.get("video_id")
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Firebase 세션 종료 처리 중 오류 발생: {e}")
 
@@ -320,7 +304,6 @@ def finish_drowsiness_detection(
     try:
         ppg_data_ref = session_ref.child("PPG_Data")
         ppg_data = ppg_data_ref.get()
-
         if ppg_data:
             ppg_list = [v for k, v in ppg_data.items()]
             df = pd.DataFrame(ppg_list)
@@ -331,13 +314,11 @@ def finish_drowsiness_detection(
             df.to_csv(ppg_csv_path, index=False)
         else:
             print(f"Warning: 세션 {session_id}에 대한 PPG 데이터가 없습니다.")
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Firebase PPG 데이터 처리 실패: {e}")
 
     if not os.path.isdir(session_dir):
         raise HTTPException(status_code=404, detail="Landmark 데이터 디렉토리가 존재하지 않습니다.")
-
     csv_files = glob.glob(os.path.join(session_dir, '*.csv'))
     if not csv_files:
         raise HTTPException(status_code=404, detail="Landmark 데이터 CSV 파일이 존재하지 않습니다.")
@@ -355,21 +336,17 @@ def finish_drowsiness_detection(
         pt_path = make_shard_and_pt(session_id, base_dir=base_dir, shard_size=150)
         if not (pt_path and os.path.exists(pt_path)):
             raise FileNotFoundError("PT 파일이 생성되지 않았습니다.")
-
         SEQ_LEN, STRIDE = 12, 3
         dataset = SessionSequenceDataset(session_dir, seq_len=SEQ_LEN, stride=STRIDE)
         if len(dataset) == 0:
             raise ValueError("1분 이상 시청하지 않아 분석이 불가능합니다.")
-
         edge_index_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../ml/edge_index_core.pt'))
         edge_index = torch.load(edge_index_path, map_location='cpu')
-
         model_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../ml/best_model.pt'))
         model = MultimodalFatigueModel(num_classes=5)
         checkpoint = torch.load(model_path, map_location='cpu')
         model.load_state_dict(checkpoint.get('model', checkpoint))
         model.eval()
-
         all_preds, all_mins = [], []
         with torch.no_grad():
             for idx in range(len(dataset)):
@@ -378,7 +355,6 @@ def finish_drowsiness_detection(
                 pred, aux = model(face, wear, edge_index)
                 all_preds.append(float(pred.item()))
                 all_mins.append(idx)
-
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
@@ -400,4 +376,56 @@ def finish_drowsiness_detection(
         prediction=prediction,
         message="졸음 예측이 완료되었습니다."
     )
+
+
+# =========================
+# 테스트용 API (신규 추가)
+# =========================
+
+@router.post("/drowsiness/testFinish", summary="[테스트용] Firebase PPG 데이터 로컬 저장")
+def test_finish_drowsiness_detection(
+        req: DrowsinessFinishRequest,
+):
+    """
+    [테스트 전용] Session ID를 받아 Firebase에서 PPG 데이터만 가져와
+    서버 로컬 경로(drowsiness_data/{session_id}/ppg_data.csv)에 저장합니다.
+    인증, 세션 종료, ML 분석 등의 과정은 생략됩니다.
+    """
+    session_id = req.session_id
+
+    try:
+        from firebase_admin import db
+        session_ref = db.reference(f"{session_id}")
+
+        # 데이터가 존재하는지 간단히 확인
+        if not session_ref.get():
+            raise HTTPException(status_code=404, detail=f"세션 ID '{session_id}'를 찾을 수 없습니다.")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Firebase 세션 조회 중 오류 발생: {e}")
+
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../drowsiness_data'))
+    session_dir = os.path.join(base_dir, session_id)
+
+    try:
+        ppg_data_ref = session_ref.child("PPG_Data")
+        ppg_data = ppg_data_ref.get()
+
+        if ppg_data:
+            ppg_list = [v for k, v in ppg_data.items()]
+            df = pd.DataFrame(ppg_list)
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df = df.sort_values(by='timestamp').reset_index(drop=True)
+            os.makedirs(session_dir, exist_ok=True)
+            ppg_csv_path = os.path.join(session_dir, 'ppg_data.csv')
+            df.to_csv(ppg_csv_path, index=False)
+            message = f"PPG 데이터가 성공적으로 '{ppg_csv_path}' 경로에 저장되었습니다."
+        else:
+            message = f"세션 {session_id}에 대한 PPG 데이터가 없습니다. 폴더만 생성되었습니다."
+            os.makedirs(session_dir, exist_ok=True)  # 데이터가 없어도 폴더는 생성
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Firebase PPG 데이터 처리 및 저장 실패: {e}")
+
+    return {"message": message, "session_id": session_id}
 

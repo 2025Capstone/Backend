@@ -18,6 +18,7 @@ class DrowsinessVerifyResponse(BaseModel):
 
 class DrowsinessFinishRequest(BaseModel):
     session_id: str = Field(..., description="졸음 탐지 세션 ID")
+    student_uid: str = Field(..., description="학생 uid")
 
 class DrowsinessPrediction(BaseModel):
     drowsiness_level: float = Field(..., description="예측된 졸음 레벨 (1~5)")
