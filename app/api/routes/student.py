@@ -15,7 +15,6 @@ from app.dependencies.auth import get_current_student_uid
 from app.services.auth_service import get_current_student
 
 # --- Firebase Admin SDK ---
-# 'db'를 직접 import하지 않고, 'firebase_admin' 모듈 전체를 import하여 import 순서 문제를 해결합니다.
 import firebase_admin
 
 # --- 스키마 (Schemas) ---
@@ -55,16 +54,15 @@ from app.utils.drowsiness_data_utils import make_shard_and_pt
 from app.ml.data_loader import SessionSequenceDataset
 from app.ml.pipeline import MultimodalFatigueModel
 
-router = APIRouter(
-    dependencies=[Depends(get_current_student)]
-)
+# APIRouter에서 전역 dependencies 제거
+router = APIRouter()
 
 
 # =========================
-# 학생 강의 관련 API (변경 없음)
+# 학생 강의 관련 API (개별 인증 추가)
 # =========================
 
-@router.get("/lecture", summary="내 수강신청 강의 목록")
+@router.get("/lecture", summary="내 수강신청 강의 목록", dependencies=[Depends(get_current_student)])
 def get_my_enrolled_lectures(
         db: Session = Depends(get_db),
         student_uid: str = Depends(get_current_student_uid)
@@ -73,7 +71,8 @@ def get_my_enrolled_lectures(
     return {"lectures": lectures}
 
 
-@router.post("/lecture/video", response_model=LectureVideoListResponse, summary="특정 강의의 영상 목록 조회")
+@router.post("/lecture/video", response_model=LectureVideoListResponse, summary="특정 강의의 영상 목록 조회",
+             dependencies=[Depends(get_current_student)])
 def get_lecture_video_list(
         req: LectureVideoListRequest = Body(...),
         db: Session = Depends(get_db),
@@ -83,7 +82,8 @@ def get_lecture_video_list(
     return LectureVideoListResponse(videos=videos)
 
 
-@router.post("/lecture/video/link", response_model=VideoLinkResponse, summary="특정 영상의 S3 링크 제공")
+@router.post("/lecture/video/link", response_model=VideoLinkResponse, summary="특정 영상의 S3 링크 제공",
+             dependencies=[Depends(get_current_student)])
 def get_video_s3_link(
         req: VideoLinkRequest = Body(...),
         db: Session = Depends(get_db),
@@ -92,7 +92,8 @@ def get_video_s3_link(
     return get_video_link_for_student(db, student_uid, req.video_id)
 
 
-@router.get("/profile", response_model=StudentProfileResponse, summary="내 프로필 정보 조회")
+@router.get("/profile", response_model=StudentProfileResponse, summary="내 프로필 정보 조회",
+            dependencies=[Depends(get_current_student)])
 def get_my_profile(
         db: Session = Depends(get_db),
         student_uid: str = Depends(get_current_student_uid)
@@ -100,7 +101,8 @@ def get_my_profile(
     return get_student_profile(db, student_uid)
 
 
-@router.patch("/profile/name", response_model=StudentNameUpdateResponse, summary="학생 이름 변경")
+@router.patch("/profile/name", response_model=StudentNameUpdateResponse, summary="학생 이름 변경",
+              dependencies=[Depends(get_current_student)])
 def set_my_name(
         req: StudentNameUpdateRequest = Body(...),
         db: Session = Depends(get_db),
@@ -109,7 +111,8 @@ def set_my_name(
     return update_student_name(db, student_uid, req.name)
 
 
-@router.post("/lecture/video/progress", response_model=VideoProgressUpdateResponse, summary="영상 진척도 기록")
+@router.post("/lecture/video/progress", response_model=VideoProgressUpdateResponse, summary="영상 진척도 기록",
+             dependencies=[Depends(get_current_student)])
 def update_video_progress(
         req: VideoProgressUpdateRequest = Body(...),
         db: Session = Depends(get_db),
@@ -143,7 +146,7 @@ def update_video_progress(
     return VideoProgressUpdateResponse(message="진척도가 저장되었습니다.")
 
 
-@router.post("/profile/image", summary="프로필 사진 업로드 및 저장")
+@router.post("/profile/image", summary="프로필 사진 업로드 및 저장", dependencies=[Depends(get_current_student)])
 def upload_my_profile_image(
         file: UploadFile = File(...),
         db: Session = Depends(get_db),
@@ -159,7 +162,7 @@ def upload_my_profile_image(
     return {"profile_image_url": s3_url}
 
 
-@router.get("/recent-incomplete-videos", summary="최근 시청기록 중 미완료 영상 10개 조회")
+@router.get("/recent-incomplete-videos", summary="최근 시청기록 중 미완료 영상 10개 조회", dependencies=[Depends(get_current_student)])
 def get_recent_incomplete_videos(
         db: Session = Depends(get_db),
         student_uid: str = Depends(get_current_student_uid)
@@ -201,7 +204,8 @@ def get_recent_incomplete_videos(
 # 졸음 탐지 플로우 API (수정됨)
 # =========================
 
-@router.post("/drowsiness/start", response_model=DrowsinessStartResponse, summary="졸음 탐지 세션 시작")
+@router.post("/drowsiness/start", response_model=DrowsinessStartResponse, summary="졸음 탐지 세션 시작",
+             dependencies=[Depends(get_current_student)])
 def start_drowsiness_detection(
         req: DrowsinessStartRequest = Body(...),
         student_uid: str = Depends(get_current_student_uid)
@@ -243,8 +247,8 @@ def start_drowsiness_detection(
 @router.post(
     "/drowsiness/verify",
     response_model=DrowsinessVerifyResponse,
-    summary="[웨어러블용] 인증코드로 검증",
-    dependencies=[]  # <<< 중요: 이 API는 라우터의 전역 인증을 적용받지 않습니다.
+    summary="[웨어러블용] 인증코드로 검증"
+    # <<< 인증이 필요 없으므로 dependencies 없음
 )
 def verify_drowsiness_from_wearable(
         req: DrowsinessVerifyRequest,  # session_id는 무시하고 code만 사용
@@ -283,7 +287,8 @@ def verify_drowsiness_from_wearable(
     return DrowsinessVerifyResponse(session_id=session_id, verified=True, message="웨어러블 연동이 완료되었습니다.")
 
 
-@router.post("/drowsiness/finish", response_model=DrowsinessFinishResponse, summary="졸음 탐지 세션 종료 및 분석")
+@router.post("/drowsiness/finish", response_model=DrowsinessFinishResponse, summary="졸음 탐지 세션 종료 및 분석",
+             dependencies=[Depends(get_current_student)])
 def finish_drowsiness_detection(
         req: DrowsinessFinishRequest,
         student_uid: str = Depends(get_current_student_uid)
