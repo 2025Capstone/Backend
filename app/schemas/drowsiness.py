@@ -6,15 +6,14 @@ class DrowsinessStartRequest(BaseModel):
 
 class DrowsinessStartResponse(BaseModel):
     session_id: str = Field(..., description="졸음 탐지 세션 ID")
+    auth_code: str = Field(..., description="인증 코드")
     message: str = Field(..., description="세션 시작 안내/상태 메시지")
 
 class DrowsinessVerifyRequest(BaseModel):
-    session_id: str = Field(..., description="졸음 탐지 세션 ID")
     code: str = Field(..., description="웨어러블 인증 코드")
 
 class DrowsinessVerifyResponse(BaseModel):
     session_id: str = Field(..., description="졸음 탐지 세션 ID")
-    verified: bool = Field(..., description="웨어러블 연동 성공 여부")
     message: str = Field(..., description="상태 메시지")
 
 class DrowsinessFinishRequest(BaseModel):

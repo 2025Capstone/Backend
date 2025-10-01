@@ -1,30 +1,29 @@
 import glob
 import time
-
-from fastapi import APIRouter, Depends, Body, UploadFile, File, WebSocket, WebSocketDisconnect
-from uuid import uuid4
+import uuid
+import random
 import os
-import numpy as np
-import torch
+
+# --- FastAPI ---
+from fastapi import APIRouter, Depends, Body, UploadFile, File, HTTPException
+
+# --- 데이터베이스 및 인증 ---
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+from app.dependencies.db import get_db
+from app.dependencies.auth import get_current_student_uid
+from app.services.auth_service import get_current_student
+
+# --- Firebase Admin SDK ---
+# 'db'를 직접 import하지 않고, 'firebase_admin' 모듈 전체를 import하여 import 순서 문제를 해결합니다.
+import firebase_admin
+
+# --- 스키마 (Schemas) ---
 from app.schemas.drowsiness import (
     DrowsinessStartRequest, DrowsinessStartResponse,
     DrowsinessVerifyRequest, DrowsinessVerifyResponse,
     DrowsinessFinishRequest, DrowsinessFinishResponse, DrowsinessPrediction
 )
-from app.ml.pipeline import MultimodalFatigueModel
-from app.ml.face_GNN import FaceSTGCNModel
-from app.ml.hrv_embedding import HRVFeatureEmbedder
-# from app.ml.data_loader import ... # 실제 CSV 파싱 필요시
-# from app.ml import ... # edge_index 등 필요시 import
-
-from fastapi.exceptions import HTTPException
-from sqlalchemy import func
-from app.models.instructor import Instructor
-from app.models.lecture import Lecture
-from app.models.video import Video
-from app.models.enrollment import Enrollment
-from app.models.watch_history import WatchHistory
-from app.models.student import Student
 from app.schemas.lecture import LectureListResponse
 from app.schemas.student import (
     LectureVideoListRequest, LectureVideoListResponse,
@@ -34,99 +33,97 @@ from app.schemas.student import (
     EnrollmentCancelRequest, EnrollmentCancelResponse, EnrollmentResponse, EnrollmentRequest,
     VideoProgressUpdateRequest, VideoProgressUpdateResponse
 )
-from app.services.auth_service import get_current_student
+
+# --- 모델 (Database Models) ---
+from app.models.instructor import Instructor
+from app.models.lecture import Lecture
+from app.models.video import Video
+from app.models.enrollment import Enrollment
+from app.models.watch_history import WatchHistory
+from app.models.student import Student
+
+# --- 서비스 (Business Logic) ---
 from app.services.student import (
     get_enrolled_lectures_for_student, get_lecture_videos_for_student, get_video_link_for_student, get_student_profile,
     update_student_name, cancel_enrollment, enroll_student_in_lecture, upload_profile_image_to_s3
 )
-from sqlalchemy.orm import Session
-from app.dependencies.db import get_db
-from app.dependencies.auth import get_current_student_uid
+
+# --- 머신러닝 및 데이터 처리 ---
+import pandas as pd
+import torch
+from app.utils.drowsiness_data_utils import make_shard_and_pt
+from app.ml.data_loader import SessionSequenceDataset
+from app.ml.pipeline import MultimodalFatigueModel
 
 router = APIRouter(
     dependencies=[Depends(get_current_student)]
 )
 
+
+# =========================
+# 학생 강의 관련 API (변경 없음)
+# =========================
+
 @router.get("/lecture", summary="내 수강신청 강의 목록")
 def get_my_enrolled_lectures(
-    db: Session = Depends(get_db),
-    student_uid: str = Depends(get_current_student_uid)
+        db: Session = Depends(get_db),
+        student_uid: str = Depends(get_current_student_uid)
 ):
-    """
-    학생이 본인 토큰으로 수강신청된 강의 목록을 조회합니다.
-    - 강의 id, 강의 이름, instructor 이름 반환
-    """
     lectures = get_enrolled_lectures_for_student(db, student_uid)
     return {"lectures": lectures}
 
+
 @router.post("/lecture/video", response_model=LectureVideoListResponse, summary="특정 강의의 영상 목록 조회")
 def get_lecture_video_list(
-    req: LectureVideoListRequest = Body(...),
-    db: Session = Depends(get_db),
-    student_uid: str = Depends(get_current_student_uid)
+        req: LectureVideoListRequest = Body(...),
+        db: Session = Depends(get_db),
+        student_uid: str = Depends(get_current_student_uid)
 ):
-    """
-    특정 강의의 영상 목록을 조회합니다. (수강신청 여부 확인)
-    - 미수강자는 403 에러 반환
-    - 성공 시 video 리스트 반환
-    """
     videos = get_lecture_videos_for_student(db, student_uid, req.lecture_id)
     return LectureVideoListResponse(videos=videos)
 
+
 @router.post("/lecture/video/link", response_model=VideoLinkResponse, summary="특정 영상의 S3 링크 제공")
 def get_video_s3_link(
-    req: VideoLinkRequest = Body(...),
-    db: Session = Depends(get_db),
-    student_uid: str = Depends(get_current_student_uid)
+        req: VideoLinkRequest = Body(...),
+        db: Session = Depends(get_db),
+        student_uid: str = Depends(get_current_student_uid)
 ):
-    """
-    학생이 video id를 제공하면, 수강신청 여부 확인 후 해당 영상의 S3 링크를 반환합니다.
-    - 미수강자는 403 에러 반환
-    - 영상이 없으면 404 에러 반환
-    """
     return get_video_link_for_student(db, student_uid, req.video_id)
+
 
 @router.get("/profile", response_model=StudentProfileResponse, summary="내 프로필 정보 조회")
 def get_my_profile(
-    db: Session = Depends(get_db),
-    student_uid: str = Depends(get_current_student_uid)
+        db: Session = Depends(get_db),
+        student_uid: str = Depends(get_current_student_uid)
 ):
-    """
-    학생이 본인 토큰으로 자신의 email, 이름을 조회합니다.
-    """
     return get_student_profile(db, student_uid)
+
 
 @router.patch("/profile/name", response_model=StudentNameUpdateResponse, summary="학생 이름 변경")
 def set_my_name(
-    req: StudentNameUpdateRequest = Body(...),
-    db: Session = Depends(get_db),
-    student_uid: str = Depends(get_current_student_uid)
+        req: StudentNameUpdateRequest = Body(...),
+        db: Session = Depends(get_db),
+        student_uid: str = Depends(get_current_student_uid)
 ):
-    """
-    학생이 본인 이름을 설정(변경)합니다.
-    - 이름이 비어있거나 255자 초과면 400 반환
-    - 학생 정보가 없으면 404 반환
-    """
     return update_student_name(db, student_uid, req.name)
+
 
 @router.post("/lecture/video/progress", response_model=VideoProgressUpdateResponse, summary="영상 진척도 기록")
 def update_video_progress(
-    req: VideoProgressUpdateRequest = Body(...),
-    db: Session = Depends(get_db),
-    student_uid: str = Depends(get_current_student_uid)
+        req: VideoProgressUpdateRequest = Body(...),
+        db: Session = Depends(get_db),
+        student_uid: str = Depends(get_current_student_uid)
 ):
-    # 1. 영상 조회
     video = db.query(Video).filter(Video.id == req.video_id, Video.is_public == 1).first()
     if not video:
         raise HTTPException(status_code=404, detail="해당 영상이 존재하지 않거나 비공개 상태입니다.")
-    # 2. 수강신청 여부 확인
     enrollment = db.query(Enrollment).filter(
         Enrollment.student_uid == student_uid,
         Enrollment.lecture_id == video.lecture_id
     ).first()
     if not enrollment:
         raise HTTPException(status_code=403, detail="해당 강의에 수강신청되어 있지 않습니다.")
-    # 3. 진척도 기록 (upsert)
     history = db.query(WatchHistory).filter(
         WatchHistory.student_uid == student_uid,
         WatchHistory.video_id == req.video_id
@@ -145,17 +142,14 @@ def update_video_progress(
     db.commit()
     return VideoProgressUpdateResponse(message="진척도가 저장되었습니다.")
 
+
 @router.post("/profile/image", summary="프로필 사진 업로드 및 저장")
 def upload_my_profile_image(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    student_uid: str = Depends(get_current_student_uid)
+        file: UploadFile = File(...),
+        db: Session = Depends(get_db),
+        student_uid: str = Depends(get_current_student_uid)
 ):
-    """
-    학생이 본인 프로필 사진을 업로드하면 S3에 저장 후, 해당 URL을 DB에 저장합니다.
-    """
     s3_url = upload_profile_image_to_s3(file)
-    # DB에 저장
     student = db.query(Student).filter(Student.uid == student_uid).first()
     if not student:
         raise HTTPException(status_code=404, detail="학생 정보를 찾을 수 없습니다.")
@@ -164,15 +158,12 @@ def upload_my_profile_image(
     db.refresh(student)
     return {"profile_image_url": s3_url}
 
+
 @router.get("/recent-incomplete-videos", summary="최근 시청기록 중 미완료 영상 10개 조회")
 def get_recent_incomplete_videos(
-    db: Session = Depends(get_db),
-    student_uid: str = Depends(get_current_student_uid)
+        db: Session = Depends(get_db),
+        student_uid: str = Depends(get_current_student_uid)
 ):
-    """
-    시청 완료하지 않은(95% 미만) 영상 중 최근 10개를 반환합니다.
-    - video_id, lecture_id, lecture_name, video_name, instructor_name, timestamp 반환
-    """
     results = (
         db.query(
             WatchHistory.video_id,
@@ -205,79 +196,143 @@ def get_recent_incomplete_videos(
         for row in results
     ]
 
+
 # =========================
-# 졸음 탐지 플로우 API
+# 졸음 탐지 플로우 API (수정됨)
 # =========================
-
-import pandas as pd
-
-from sqlalchemy.orm import Session as DBSession
-from fastapi import Depends
-from app.dependencies.db import get_db
-
-
-
-import random
-
-from app.models.drowsiness_session import DrowsinessSession
 
 @router.post("/drowsiness/start", response_model=DrowsinessStartResponse, summary="졸음 탐지 세션 시작")
 def start_drowsiness_detection(
-    req: DrowsinessStartRequest = Body(...),
-    db: Session = Depends(get_db),
-    student_uid: str = Depends(get_current_student_uid)
+        req: DrowsinessStartRequest = Body(...),
+        student_uid: str = Depends(get_current_student_uid)
 ):
     """
-    졸음 탐지 세션을 시작하고, 6자리 인증코드를 생성하여 클라이언트에 반환합니다.
-    클라이언트는 이 코드를 웨어러블 디바이스에 입력해야 합니다.
+    졸음 탐지 세션을 시작하고, Firebase에 세션 데이터와 인덱스를 생성합니다.
+    생성된 6자리 인증코드를 클라이언트에 반환합니다.
     """
-    session_id = str(uuid4())
+    session_id = str(uuid.uuid4())
     auth_code = f"{random.randint(0, 999999):06d}"
-    # DB에 세션 생성
-    session_obj = DrowsinessSession(
-        session_id=session_id,
-        student_uid=student_uid,
-        video_id=req.video_id,
-        auth_code=auth_code,
-        verified=False
-    )
-    db.add(session_obj)
-    db.commit()
-    return DrowsinessStartResponse(session_id=session_id, message=f"세션이 시작되었습니다. 인증코드: {auth_code}")
 
-@router.post("/drowsiness/verify", response_model=DrowsinessVerifyResponse, summary="웨어러블 인증코드 검증")
-def verify_drowsiness_wearable(
-    req: DrowsinessVerifyRequest = Body(...),
-    db: Session = Depends(get_db),
-    student_uid: str = Depends(get_current_student_uid)
+    try:
+        from firebase_admin import db
+
+        # 1. 메인 세션 데이터 저장
+        ref = db.reference(f"{session_id}")
+        ref.set({
+            "pairing": {
+                "paired": False,
+                "stop": False,
+                "auth_code": auth_code,
+                "student_uid": student_uid,
+                "video_id": req.video_id
+            },
+            "PPG_Data": {}
+        })
+
+        # 2. 인증 코드를 Key로 사용하는 인덱스 저장
+        index_ref = db.reference(f"auth_code_index/{auth_code}")
+        index_ref.set(session_id)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Firebase 세션 생성에 실패했습니다: {e}")
+
+    return DrowsinessStartResponse(session_id=session_id, auth_code=auth_code,
+                                   message="세션이 시작되었습니다. 웨어러블에 인증코드를 입력하세요.")
+
+
+@router.post(
+    "/drowsiness/verify",
+    response_model=DrowsinessVerifyResponse,
+    summary="[웨어러블용] 인증코드로 검증",
+    dependencies=[]  # <<< 중요: 이 API는 라우터의 전역 인증을 적용받지 않습니다.
+)
+def verify_drowsiness_from_wearable(
+        req: DrowsinessVerifyRequest,  # session_id는 무시하고 code만 사용
 ):
     """
-    웨어러블에서 입력한 인증코드를 검증합니다. (클라이언트와 웨어러블이 동일한 코드를 입력해야 연동 성공)
+    웨어러블 기기에서 전송한 인증코드를 기반으로 세션을 찾아 연동하고, 세션 ID를 반환합니다.
+    이 API는 로그인 토큰이 필요 없습니다.
     """
-    session_obj = db.query(DrowsinessSession).filter_by(session_id=req.session_id).first()
-    if not session_obj or session_obj.student_uid != student_uid:
-        raise HTTPException(status_code=404, detail="세션이 존재하지 않습니다.")
-    if req.code != session_obj.auth_code:
-        return DrowsinessVerifyResponse(session_id=req.session_id, verified=False, message="인증코드가 일치하지 않습니다.")
-    session_obj.verified = True
-    db.commit()
-    return DrowsinessVerifyResponse(session_id=req.session_id, verified=True, message="웨어러블 연동이 완료되었습니다.")
+    try:
+        from firebase_admin import db
 
-from app.utils.drowsiness_data_utils import make_shard_and_pt
-from app.ml.data_loader import SessionSequenceDataset
+        # 1. 인덱스를 통해 session_id를 빠르게 조회
+        index_ref = db.reference(f"auth_code_index/{req.code}")
+        session_id = index_ref.get()
 
-@router.post("/drowsiness/finish", response_model=DrowsinessFinishResponse)
+        if not session_id:
+            raise HTTPException(status_code=404, detail="인증코드가 유효하지 않거나 만료되었습니다.")
+
+        # 2. 조회한 session_id로 실제 세션 데이터에 접근
+        session_ref = db.reference(f"{session_id}/pairing")
+        session_data = session_ref.get()
+
+        if not session_data:
+            raise HTTPException(status_code=404, detail="인덱스는 존재하지만, 해당 세션 데이터가 존재하지 않습니다.")
+
+        # 3. paired 상태 업데이트
+        session_ref.update({"paired": True})
+
+        # 4. (권장) 사용된 인덱스 삭제
+        index_ref.delete()
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Firebase 데이터 검증/업데이트 중 오류가 발생했습니다: {e}")
+
+    # 웨어러블이 앞으로 사용할 session_id를 응답에 포함
+    return DrowsinessVerifyResponse(session_id=session_id, verified=True, message="웨어러블 연동이 완료되었습니다.")
+
+
+@router.post("/drowsiness/finish", response_model=DrowsinessFinishResponse, summary="졸음 탐지 세션 종료 및 분석")
 def finish_drowsiness_detection(
-    req: DrowsinessFinishRequest,
-    db: Session = Depends(get_db),
-    student_uid: str = Depends(get_current_student_uid)
+        req: DrowsinessFinishRequest,
+        student_uid: str = Depends(get_current_student_uid)
 ):
-    import torch
     session_id = req.session_id
+
+    # 함수 내에서 db 모듈을 import합니다.
+    from firebase_admin import db
+
+    try:
+        session_ref = db.reference(f"{session_id}")
+        pairing_ref = session_ref.child("pairing")
+
+        pairing_data = pairing_ref.get()
+        if not pairing_data:
+            raise HTTPException(status_code=404, detail="세션 정보를 찾을 수 없습니다.")
+        if pairing_data.get("student_uid") != student_uid:
+            raise HTTPException(status_code=403, detail="본인의 세션이 아닙니다.")
+
+        pairing_ref.update({"stop": True})
+        video_id = pairing_data.get("video_id")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Firebase 세션 종료 처리 중 오류 발생: {e}")
+
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../drowsiness_data'))
     session_dir = os.path.join(base_dir, session_id)
+
+    try:
+        ppg_data_ref = session_ref.child("PPG_Data")
+        ppg_data = ppg_data_ref.get()
+
+        if ppg_data:
+            ppg_list = [v for k, v in ppg_data.items()]
+            df = pd.DataFrame(ppg_list)
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df = df.sort_values(by='timestamp').reset_index(drop=True)
+            os.makedirs(session_dir, exist_ok=True)
+            ppg_csv_path = os.path.join(session_dir, 'ppg_data.csv')
+            df.to_csv(ppg_csv_path, index=False)
+        else:
+            print(f"Warning: 세션 {session_id}에 대한 PPG 데이터가 없습니다.")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Firebase PPG 데이터 처리 실패: {e}")
+
     if not os.path.isdir(session_dir):
         raise HTTPException(status_code=404, detail="Landmark 데이터 디렉토리가 존재하지 않습니다.")
+
     csv_files = glob.glob(os.path.join(session_dir, '*.csv'))
     if not csv_files:
         raise HTTPException(status_code=404, detail="Landmark 데이터 CSV 파일이 존재하지 않습니다.")
@@ -285,10 +340,7 @@ def finish_drowsiness_detection(
     timeout, interval, waited = 120, 1, 0
     while waited < timeout:
         last_modified = max(os.path.getmtime(f) for f in csv_files)
-        elapsed = time.time() - last_modified
-        if elapsed >= 2:
-            break
-        print(f"Landmark 데이터 저장 중... (경과 {elapsed:.2f}s)")
+        if time.time() - last_modified >= 2: break
         time.sleep(interval)
         waited += interval
     else:
@@ -296,97 +348,51 @@ def finish_drowsiness_detection(
 
     try:
         pt_path = make_shard_and_pt(session_id, base_dir=base_dir, shard_size=150)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Landmark 데이터 병합/pt 변환 실패: {e}")
+        if not (pt_path and os.path.exists(pt_path)):
+            raise FileNotFoundError("PT 파일이 생성되지 않았습니다.")
 
-    if pt_path and os.path.exists(pt_path):
-        try:
-            pt_data = torch.load(pt_path)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"PT 파일 로드 실패: {e}")
-    else:
-        raise HTTPException(status_code=404, detail="PT 파일이 존재하지 않습니다.")
-
-    edge_index_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../ml/edge_index_core.pt'))
-    try:
-        edge_index = torch.load(edge_index_path, map_location='cpu')
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"edge_index 로드 실패: {e}")
-
-    try:
         SEQ_LEN, STRIDE = 12, 3
         dataset = SessionSequenceDataset(session_dir, seq_len=SEQ_LEN, stride=STRIDE)
         if len(dataset) == 0:
-            raise HTTPException(status_code=400, detail="1분 이상 시청하지 않아 분석이 불가능합니다.")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"데이터셋 로딩 실패: {e}")
+            raise ValueError("1분 이상 시청하지 않아 분석이 불가능합니다.")
 
-    try:
+        edge_index_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../ml/edge_index_core.pt'))
+        edge_index = torch.load(edge_index_path, map_location='cpu')
+
         model_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../ml/best_model.pt'))
         model = MultimodalFatigueModel(num_classes=5)
-
-        # ✅ state_dict 추출 및 로드
         checkpoint = torch.load(model_path, map_location='cpu')
-        if 'model' in checkpoint:
-            model.load_state_dict(checkpoint['model'])
-        else:
-            model.load_state_dict(checkpoint)
+        model.load_state_dict(checkpoint.get('model', checkpoint))
         model.eval()
 
         all_preds, all_mins = [], []
         with torch.no_grad():
             for idx in range(len(dataset)):
                 face, wear, _ = dataset[idx]
-                face = face.unsqueeze(0)
-                wear = wear.unsqueeze(0)
+                face, wear = face.unsqueeze(0), wear.unsqueeze(0)
                 pred, aux = model(face, wear, edge_index)
-
-                # ✅ pred는 회귀값, conf는 1.0
-                lvl = float(pred.item())
-                conf = 1.0
-
-                all_preds.append(lvl)
+                all_preds.append(float(pred.item()))
                 all_mins.append(idx)
 
-
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"모델 예측 실패: {e}")
 
-    # === 졸음 수준 DB 저장 ===
-    from app.models.drowsiness_session import DrowsinessSession
-    from app.models.drowsiness_level import DrowsinessLevel
-
-    # session_id로 세션 정보 조회
-    session_obj = db.query(DrowsinessSession).filter_by(session_id=session_id).first()
-    if not session_obj:
-        raise HTTPException(status_code=404, detail="세션 정보를 찾을 수 없습니다.")
-    if session_obj.student_uid != student_uid:
-        raise HTTPException(status_code=403, detail="본인 세션이 아닙니다.")
-    video_id = session_obj.video_id
-
-    # 기존 데이터 삭제
-    db.query(DrowsinessLevel).filter_by(video_id=video_id, student_uid=student_uid).delete()
-    db.commit()
-
-    db.add_all([
-        DrowsinessLevel(
-            video_id=video_id,
-            student_uid=student_uid,
-            timestamp=i,
-            drowsiness_score=score
-        ) for i, score in enumerate(all_preds)
-    ])
-    db.commit()
-
+    if not all_preds:
+        raise HTTPException(status_code=400, detail="분석 결과가 없습니다.")
 
     prediction = DrowsinessPrediction(
         session_id=session_id,
         drowsiness_level=all_preds[-1],
-        confidence=conf,  # 마지막 conf=1.0
+        confidence=1.0,
         details={"minute": all_mins[-1], "all_preds": all_preds}
     )
     return DrowsinessFinishResponse(
         session_id=session_id,
         prediction=prediction,
-        message="졸음 예측이 완료되었습니다. (모든 1분 단위 예측)"
+        message="졸음 예측이 완료되었습니다."
     )
+
