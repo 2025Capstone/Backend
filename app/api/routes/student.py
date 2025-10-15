@@ -40,6 +40,7 @@ from app.models.video import Video
 from app.models.enrollment import Enrollment
 from app.models.watch_history import WatchHistory
 from app.models.student import Student
+from app.services.hrv_analyzer import compute_hrv_and_features_from_firebase
 
 # --- 서비스 (Business Logic) ---
 from app.services.student import (
@@ -282,6 +283,8 @@ def finish_drowsiness_detection(
         student_uid: str = Depends(get_current_student_uid)
 ):
     session_id = req.session_id
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../drowsiness_data'))
+    session_dir = os.path.join(base_dir, session_id)
 
     from firebase_admin import db
 
@@ -298,40 +301,99 @@ def finish_drowsiness_detection(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Firebase 세션 종료 처리 중 오류 발생: {e}")
 
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../drowsiness_data'))
-    session_dir = os.path.join(base_dir, session_id)
-
+    # --- 2. PPG 데이터 수신 완료 대기 (Polling) ---
     try:
-        ppg_data_ref = session_ref.child("PPG_Data")
-        ppg_data = ppg_data_ref.get()
-        if ppg_data:
-            ppg_list = [v for k, v in ppg_data.items()]
-            df = pd.DataFrame(ppg_list)
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
-            df = df.sort_values(by='timestamp').reset_index(drop=True)
-            os.makedirs(session_dir, exist_ok=True)
-            ppg_csv_path = os.path.join(session_dir, 'ppg_data.csv')
-            df.to_csv(ppg_csv_path, index=False)
-        else:
-            print(f"Warning: 세션 {session_id}에 대한 PPG 데이터가 없습니다.")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Firebase PPG 데이터 처리 실패: {e}")
+        polling_timeout = 180  # 최대 3분 대기
+        polling_interval = 5   # 5초 간격으로 확인
+        stability_threshold = 10 # 10초 동안 데이터 개수 변화 없으면 완료로 간주
 
+        last_data_count = -1
+        stable_time = 0
+        waited_time = 0
+
+        while waited_time < polling_timeout:
+            ppg_node = session_ref.child("PPG_Data").get() or {}
+            current_data_count = len(ppg_node)
+
+            if current_data_count > last_data_count:
+                # 데이터가 여전히 수신 중
+                last_data_count = current_data_count
+                stable_time = 0
+            elif last_data_count > 0:
+                # 데이터 개수 변화 없음
+                stable_time += polling_interval
+
+            if stable_time >= stability_threshold:
+                # 업로드가 안정화되었으므로 완료로 판단
+                print(f"✅ PPG 데이터 수신 완료. (총 {current_data_count}개)")
+                break
+
+            time.sleep(polling_interval)
+            waited_time += polling_interval
+        else:
+            # 타임아웃 발생
+            raise HTTPException(status_code=504, detail="PPG 데이터 수신 대기 시간을 초과했습니다.")
+
+    except HTTPException as e:
+        raise e # 타임아웃 예외는 그대로 전달
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"PPG 데이터 수신 확인 중 오류 발생: {e}")
+
+
+    # --- 3. 웨어러블 특징(HRV) 데이터 생성 ---
+    try:
+        df_wearable = compute_hrv_and_features_from_firebase(session_id)
+        # 분석 결과를 디버깅용으로 저장 (선택 사항)
+        os.makedirs(session_dir, exist_ok=True)
+        wearable_csv_path = os.path.join(session_dir, 'wearable_features.csv')
+        df_wearable.to_csv(wearable_csv_path, index=False)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"HRV 분석 실패: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"HRV 분석 중 서버 오류 발생: {e}")
+
+    # --- 4. 랜드마크 데이터 로드 (파일 쓰기 완료 대기 포함) ---
     if not os.path.isdir(session_dir):
         raise HTTPException(status_code=404, detail="Landmark 데이터 디렉토리가 존재하지 않습니다.")
-    csv_files = glob.glob(os.path.join(session_dir, '*.csv'))
-    if not csv_files:
-        raise HTTPException(status_code=404, detail="Landmark 데이터 CSV 파일이 존재하지 않습니다.")
 
+    # WebSocket을 통한 파일 쓰기가 완료될 때까지 대기 (최대 2분)
     timeout, interval, waited = 120, 1, 0
     while waited < timeout:
-        last_modified = max(os.path.getmtime(f) for f in csv_files)
-        if time.time() - last_modified >= 2: break
+        landmark_files = glob.glob(os.path.join(session_dir, 'landmarks_*.csv'))
+        if not landmark_files:  # 파일이 아직 생성되지 않았으면 대기
+            time.sleep(interval)
+            waited += interval
+            continue
+
+        last_modified = max(os.path.getmtime(f) for f in landmark_files)
+        # 마지막 파일 수정 후 2초 이상 지났으면 쓰기가 완료된 것으로 간주
+        if time.time() - last_modified >= 2:
+            break
         time.sleep(interval)
         waited += interval
     else:
-        raise HTTPException(status_code=500, detail="Landmark 데이터 저장 대기 타임아웃.")
+        raise HTTPException(status_code=500, detail="Landmark 데이터 저장 대기 시간을 초과했습니다.")
 
+    # 모든 랜드마크 chunk를 하나로 합치기
+    df_landmarks = pd.concat([pd.read_csv(f, header=None) for f in landmark_files], ignore_index=True)
+    df_landmarks.columns = ['timestamp'] + [f'lm_{i}' for i in range(df_landmarks.shape[1] - 1)]
+
+    # --- 5. 랜드마크와 웨어러블 데이터 병합 ---
+    df_wearable['timestamp'] = pd.to_numeric(df_wearable['timestamp'])
+    df_landmarks['timestamp'] = pd.to_numeric(df_landmarks['timestamp'])
+
+    df_merged = pd.merge_asof(
+        df_landmarks.sort_values('timestamp'),
+        df_wearable.sort_values('timestamp'),
+        on='timestamp',
+        direction='backward'
+    )
+    df_merged.dropna(inplace=True)
+
+    if df_merged.empty:
+        raise HTTPException(status_code=400, detail="랜드마크와 웨어러블 데이터를 병합할 수 없습니다. 타임스탬프를 확인하세요.")
+
+    # --- 6. AI 모델 예측 수행 ---
     try:
         pt_path = make_shard_and_pt(session_id, base_dir=base_dir, shard_size=150)
         if not (pt_path and os.path.exists(pt_path)):
