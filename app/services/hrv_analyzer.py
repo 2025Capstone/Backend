@@ -120,7 +120,7 @@ def compute_hrv_and_features_from_firebase(session_id: str, alpha=0.05, fs=25):
 
     t0 = hrv_segments[0]["segment_start_ts"]
     for res in hrv_segments:
-        row = {"timestamp": (res["segment_start_ts"] - t0).total_seconds()}
+        row = {"timestamp": (res["segment_start_ts"] - t0) / np.timedelta64(1, 's')}
         for domain, metrics in res.items():
             if isinstance(metrics, dict):
                 for key, val in metrics.items():
