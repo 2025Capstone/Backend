@@ -7,6 +7,7 @@ from app.models.instructor import Instructor
 from app.models.video import Video
 from app.models.student import Student
 from app.models.watch_history import WatchHistory
+from app.models.drowsiness_level import DrowsinessLevel
 from app.schemas.student import (
     EnrollmentRequest, EnrollmentResponse,
     EnrollmentCancelRequest, EnrollmentCancelResponse,
@@ -127,8 +128,14 @@ def get_video_link_for_student(db: Session, student_uid: str, video_id: int) -> 
         WatchHistory.video_id == video_id
     ).first()
     watched_percent = history.watched_percent if history else 0
-    # 4. s3_link, watched_percent 반환
-    return VideoLinkResponse(s3_link=video.s3_link, watched_percent=watched_percent)
+    # 4. 졸음 정도 조회 (timestamp 순서대로 정렬)
+    drowsiness_records = db.query(DrowsinessLevel).filter(
+        DrowsinessLevel.video_id == video_id,
+        DrowsinessLevel.student_uid == student_uid
+    ).order_by(DrowsinessLevel.timestamp.asc()).all()
+    drowsiness_levels = [record.drowsiness_score for record in drowsiness_records]
+    # 5. s3_link, watched_percent, drowsiness_levels 반환
+    return VideoLinkResponse(s3_link=video.s3_link, watched_percent=watched_percent, drowsiness_levels=drowsiness_levels)
 
 def get_student_profile(db: Session, student_uid: str) -> StudentProfileResponse:
     student = db.query(Student).filter(Student.uid == student_uid).first()

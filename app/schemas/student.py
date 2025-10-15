@@ -57,6 +57,7 @@ class VideoLinkRequest(BaseModel):
 class VideoLinkResponse(BaseModel):
     s3_link: str
     watched_percent: int
+    drowsiness_levels: List[float]
 
 class StudentProfileResponse(BaseModel):
     email: str
