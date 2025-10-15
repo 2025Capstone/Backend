@@ -5,7 +5,7 @@ import torch
 
 def merge_landmark_csvs(session_id: str, base_dir: str):
     session_dir = os.path.join(base_dir, session_id)
-    csv_files = sorted(glob.glob(os.path.join(session_dir, '*.csv')))
+    csv_files = sorted(glob.glob(os.path.join(session_dir, 'landmarks_*.csv')))
     all_frames = []
     for csv_file in csv_files:
         df = pd.read_csv(csv_file, header=None)
