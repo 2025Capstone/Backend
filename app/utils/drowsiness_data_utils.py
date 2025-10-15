@@ -9,7 +9,9 @@ def merge_landmark_csvs(session_id: str, base_dir: str):
     all_frames = []
     for csv_file in csv_files:
         df = pd.read_csv(csv_file, header=None)
-        arr = df.values.reshape(-1, 478, 3)
+        # 첫 번째 컬럼(timestamp)을 제외하고 landmark 데이터만 추출
+        landmark_data = df.iloc[:, 1:].values
+        arr = landmark_data.reshape(-1, 478, 3)
         all_frames.append(arr)
     if not all_frames:
         raise ValueError(f"No landmark CSVs found for session {session_id}")
