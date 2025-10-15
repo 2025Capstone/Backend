@@ -40,6 +40,7 @@ from app.models.video import Video
 from app.models.enrollment import Enrollment
 from app.models.watch_history import WatchHistory
 from app.models.student import Student
+from app.models.drowsiness_level import DrowsinessLevel
 from app.services.hrv_analyzer import compute_hrv_and_features_from_firebase
 
 # --- 서비스 (Business Logic) ---
@@ -280,16 +281,17 @@ def verify_drowsiness_from_wearable(
              dependencies=[Depends(get_current_student)])
 def finish_drowsiness_detection(
         req: DrowsinessFinishRequest,
-        student_uid: str = Depends(get_current_student_uid)
+        student_uid: str = Depends(get_current_student_uid),
+        db_session: Session = Depends(get_db)
 ):
     session_id = req.session_id
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../drowsiness_data'))
     session_dir = os.path.join(base_dir, session_id)
 
-    from firebase_admin import db
+    from firebase_admin import db as firebase_db
 
     try:
-        session_ref = db.reference(f"{session_id}")
+        session_ref = firebase_db.reference(f"{session_id}")
         pairing_ref = session_ref.child("pairing")
         pairing_data = pairing_ref.get()
         if not pairing_data:
@@ -353,14 +355,18 @@ def finish_drowsiness_detection(
         raise HTTPException(status_code=500, detail=f"HRV 분석 중 서버 오류 발생: {e}")
 
     # --- 4. 랜드마크 데이터 로드 (파일 쓰기 완료 대기 포함) ---
+    print(f"[{session_id}] 📂 Step 4: 랜드마크 데이터 로드 시작")
     if not os.path.isdir(session_dir):
         raise HTTPException(status_code=404, detail="Landmark 데이터 디렉토리가 존재하지 않습니다.")
 
     # WebSocket을 통한 파일 쓰기가 완료될 때까지 대기 (최대 2분)
+    print(f"[{session_id}] ⏳ 랜드마크 파일 쓰기 완료 대기 중...")
     timeout, interval, waited = 120, 1, 0
     while waited < timeout:
         landmark_files = glob.glob(os.path.join(session_dir, 'landmarks_*.csv'))
         if not landmark_files:  # 파일이 아직 생성되지 않았으면 대기
+            if waited % 10 == 0:  # 10초마다 로그 출력
+                print(f"[{session_id}] ⏳ 랜드마크 파일 대기 중... ({waited}초 경과)")
             time.sleep(interval)
             waited += interval
             continue
@@ -368,6 +374,7 @@ def finish_drowsiness_detection(
         last_modified = max(os.path.getmtime(f) for f in landmark_files)
         # 마지막 파일 수정 후 2초 이상 지났으면 쓰기가 완료된 것으로 간주
         if time.time() - last_modified >= 2:
+            print(f"[{session_id}] ✅ 랜드마크 파일 쓰기 완료 확인 (총 {len(landmark_files)}개 파일)")
             break
         time.sleep(interval)
         waited += interval
@@ -375,10 +382,13 @@ def finish_drowsiness_detection(
         raise HTTPException(status_code=500, detail="Landmark 데이터 저장 대기 시간을 초과했습니다.")
 
     # 모든 랜드마크 chunk를 하나로 합치기
+    print(f"[{session_id}] 🔄 랜드마크 파일 병합 중...")
     df_landmarks = pd.concat([pd.read_csv(f, header=None) for f in landmark_files], ignore_index=True)
     df_landmarks.columns = ['timestamp'] + [f'lm_{i}' for i in range(df_landmarks.shape[1] - 1)]
+    print(f"[{session_id}] ✅ 랜드마크 데이터 로드 완료 (총 {len(df_landmarks)}개 프레임)")
 
     # --- 5. 랜드마크와 웨어러블 데이터 병합 ---
+    print(f"[{session_id}] 🔗 Step 5: 랜드마크와 웨어러블 데이터 병합 시작")
     df_wearable['timestamp'] = pd.to_numeric(df_wearable['timestamp'])
     df_landmarks['timestamp'] = pd.to_numeric(df_landmarks['timestamp'])
 
@@ -392,16 +402,20 @@ def finish_drowsiness_detection(
 
     if df_merged.empty:
         raise HTTPException(status_code=400, detail="랜드마크와 웨어러블 데이터를 병합할 수 없습니다. 타임스탬프를 확인하세요.")
+    
+    print(f"[{session_id}] ✅ 데이터 병합 완료 (병합된 프레임: {len(df_merged)}개)")
 
-    # --- 6. AI 모델 예측 수행 ---
+    # --- 6. AI 모델 예측 수행 및 DB 저장 ---
+    print(f"[{session_id}] 🤖 Step 6: AI 모델 예측 수행 시작")
     try:
+        print(f"[{session_id}] 📦 PT 파일 생성 중...")
         pt_path = make_shard_and_pt(session_id, base_dir=base_dir, shard_size=150)
         if not (pt_path and os.path.exists(pt_path)):
             raise FileNotFoundError("PT 파일이 생성되지 않았습니다.")
-        SEQ_LEN, STRIDE = 12, 3
-        dataset = SessionSequenceDataset(session_dir, seq_len=SEQ_LEN, stride=STRIDE)
-        if len(dataset) == 0:
-            raise ValueError("1분 이상 시청하지 않아 분석이 불가능합니다.")
+        print(f"[{session_id}] ✅ PT 파일 생성 완료: {os.path.basename(pt_path)}")
+        
+        # 모델 로드
+        print(f"[{session_id}] 🧠 AI 모델 로드 중...")
         edge_index_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../ml/edge_index_core.pt'))
         edge_index = torch.load(edge_index_path, map_location='cpu')
         model_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../ml/best_model.pt'))
@@ -409,14 +423,60 @@ def finish_drowsiness_detection(
         checkpoint = torch.load(model_path, map_location='cpu')
         model.load_state_dict(checkpoint.get('model', checkpoint))
         model.eval()
-        all_preds, all_mins = [], []
+        print(f"[{session_id}] ✅ AI 모델 로드 완료")
+        
+        # 2분 단위로 예측 수행
+        # SEQ_LEN=12 shards × 150 frames/shard × (1/30) sec/frame = 60초 = 1분
+        # 2분 = 2개의 시퀀스 필요
+        SEQ_LEN = 12  # 1분에 해당하는 윈도우 개수
+        STRIDE = 24   # 2분씩 이동 (2분 = 24 shards)
+        
+        print(f"[{session_id}] 📊 데이터셋 생성 중 (SEQ_LEN={SEQ_LEN}, STRIDE={STRIDE})...")
+        dataset = SessionSequenceDataset(session_dir, seq_len=SEQ_LEN, stride=STRIDE)
+        if len(dataset) == 0:
+            raise ValueError("2분 이상 시청하지 않아 분석이 불가능합니다.")
+        print(f"[{session_id}] ✅ 데이터셋 생성 완료 (총 {len(dataset)}개 시퀀스)")
+        
+        # HRV 데이터 개수 확인 (2분마다 1개)
+        num_hrv_segments = len(df_wearable)
+        
+        # 랜드마크 데이터로 만들 수 있는 2분 단위 예측 개수
+        # 각 dataset item은 1분(12 shards)이므로, 2분 예측을 위해서는 연속된 2개 필요
+        num_landmark_2min_segments = len(dataset)
+        
+        # 둘 중 작은 개수만큼만 예측 수행
+        num_predictions = min(num_hrv_segments, num_landmark_2min_segments)
+        
+        print(f"[{session_id}] 📈 예측 정보: HRV 세그먼트={num_hrv_segments}, 랜드마크 세그먼트={num_landmark_2min_segments}")
+        print(f"[{session_id}] 🎯 총 {num_predictions}개의 2분 단위 세그먼트 예측 시작")
+        
+        if num_predictions == 0:
+            raise ValueError("예측 가능한 2분 단위 세그먼트가 없습니다.")
+        
+        all_preds = []
         with torch.no_grad():
-            for idx in range(len(dataset)):
+            for idx in range(num_predictions):
+                print(f"[{session_id}] 🔮 예측 중... [{idx+1}/{num_predictions}] (시간: {idx*2}~{(idx+1)*2}분)")
                 face, wear, _ = dataset[idx]
                 face, wear = face.unsqueeze(0), wear.unsqueeze(0)
                 pred, aux = model(face, wear, edge_index)
-                all_preds.append(float(pred.item()))
-                all_mins.append(idx)
+                drowsiness_score = float(pred.item())
+                all_preds.append(drowsiness_score)
+                print(f"[{session_id}] 📊 예측 결과: 졸음 점수 = {drowsiness_score:.4f}")
+                
+                # DB에 저장 (timestamp는 0부터 시작, 2분 단위)
+                drowsiness_record = DrowsinessLevel(
+                    video_id=video_id,
+                    student_uid=student_uid,
+                    timestamp=idx,  # 0 = 0~2분, 1 = 2~4분, 2 = 4~6분, ...
+                    drowsiness_score=drowsiness_score
+                )
+                db_session.add(drowsiness_record)
+        
+        print(f"[{session_id}] 💾 DB에 예측 결과 저장 중...")
+        db_session.commit()
+        print(f"[{session_id}] ✅ DB 저장 완료 (총 {len(all_preds)}개 레코드)")
+        
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
@@ -427,16 +487,19 @@ def finish_drowsiness_detection(
     if not all_preds:
         raise HTTPException(status_code=400, detail="분석 결과가 없습니다.")
 
+    print(f"[{session_id}] 🎉 졸음 탐지 분석 완료!")
+    print(f"[{session_id}] 📊 최종 결과: 총 {len(all_preds)}개 세그먼트, 마지막 졸음 점수 = {all_preds[-1]:.4f}")
+    
     prediction = DrowsinessPrediction(
         session_id=session_id,
         drowsiness_level=all_preds[-1],
         confidence=1.0,
-        details={"minute": all_mins[-1], "all_preds": all_preds}
+        details={"total_segments": len(all_preds), "all_preds": all_preds}
     )
     return DrowsinessFinishResponse(
         session_id=session_id,
         prediction=prediction,
-        message="졸음 예측이 완료되었습니다."
+        message=f"졸음 예측이 완료되었습니다. 총 {len(all_preds)}개의 2분 단위 세그먼트가 분석되었습니다."
     )
 
 
