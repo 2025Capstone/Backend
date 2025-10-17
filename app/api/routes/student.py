@@ -302,6 +302,21 @@ def finish_drowsiness_detection(
         video_id = pairing_data.get("video_id")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Firebase 세션 종료 처리 중 오류 발생: {e}")
+    
+    # --- 1.5. 중복 분석 방지: 이미 분석된 데이터가 있는지 확인 ---
+    print(f"[{session_id}] 🔍 중복 분석 확인 중...")
+    existing_analysis = db_session.query(DrowsinessLevel).filter(
+        DrowsinessLevel.video_id == video_id,
+        DrowsinessLevel.student_uid == student_uid
+    ).first()
+    
+    if existing_analysis:
+        print(f"[{session_id}] ⚠️ 이미 분석 완료된 데이터 발견")
+        raise HTTPException(
+            status_code=409,  # 409 Conflict
+            detail=f"해당 영상(video_id={video_id})에 대한 졸음 분석이 이미 완료되었습니다. 중복 분석을 방지하기 위해 요청이 거부되었습니다."
+        )
+    print(f"[{session_id}] ✅ 중복 분석 확인 완료 (분석 이력 없음)")
 
     # --- 2. PPG 데이터 수신 완료 대기 (Polling) ---
     try:
@@ -418,53 +433,46 @@ def finish_drowsiness_detection(
         model.eval()
         print(f"[{session_id}] ✅ AI 모델 로드 완료")
         
-        # 1분 단위로 예측 수행
+        # 2분 단위로 예측 수행 (HRV 데이터와 동기화)
         # SEQ_LEN=12 shards × 150 frames/shard × (1/30) sec/frame = 60초 = 1분
-        SEQ_LEN = 12  # 1분에 해당하는 윈도우 개수
-        STRIDE = 12   # 1분씩 이동 (1분 = 12 shards)
+        # 2분 = 24 shards
+        SEQ_LEN = 24  # 2분에 해당하는 윈도우 개수
+        STRIDE = 24   # 2분씩 이동 (2분 = 24 shards)
         
         print(f"[{session_id}] 📊 데이터셋 생성 중 (SEQ_LEN={SEQ_LEN}, STRIDE={STRIDE})...")
         dataset = SessionSequenceDataset(session_dir, seq_len=SEQ_LEN, stride=STRIDE)
         if len(dataset) == 0:
-            raise ValueError("1분 이상 시청하지 않아 분석이 불가능합니다.")
+            raise ValueError("2분 이상 시청하지 않아 분석이 불가능합니다.")
         print(f"[{session_id}] ✅ 데이터셋 생성 완료 (총 {len(dataset)}개 시퀀스)")
         
         # HRV 데이터 개수 확인 (2분마다 1개)
         num_hrv_segments = len(df_wearable)
         
-        # 랜드마크 데이터로 만들 수 있는 1분 단위 예측 개수
-        num_landmark_1min_segments = len(dataset)
-        
-        # 1분 단위 예측을 위해 HRV 데이터를 2번씩 재사용
-        # 예: HRV[0] → 0-1분, 1-2분 / HRV[1] → 2-3분, 3-4분
-        max_predictions_from_hrv = num_hrv_segments * 2
+        # 랜드마크 데이터로 만들 수 있는 2분 단위 예측 개수
+        num_landmark_2min_segments = len(dataset)
         
         # 실제 예측 가능한 개수는 랜드마크 데이터와 HRV 데이터 중 작은 값
-        num_predictions = min(num_landmark_1min_segments, max_predictions_from_hrv)
+        num_predictions = min(num_landmark_2min_segments, num_hrv_segments)
         
-        print(f"[{session_id}] 📈 예측 정보: HRV 세그먼트={num_hrv_segments} (2분 단위), 랜드마크 세그먼트={num_landmark_1min_segments} (1분 단위)")
-        print(f"[{session_id}] 🎯 총 {num_predictions}개의 1분 단위 세그먼트 예측 시작")
+        print(f"[{session_id}] 📈 예측 정보: HRV 세그먼트={num_hrv_segments}, 랜드마크 세그먼트={num_landmark_2min_segments} (모두 2분 단위)")
+        print(f"[{session_id}] 🎯 총 {num_predictions}개의 2분 단위 세그먼트 예측 시작")
         
         if num_predictions == 0:
-            raise ValueError("예측 가능한 1분 단위 세그먼트가 없습니다.")
+            raise ValueError("예측 가능한 2분 단위 세그먼트가 없습니다.")
         
         all_preds = []
         with torch.no_grad():
             for idx in range(num_predictions):
-                # HRV 데이터 인덱스 계산: 2분마다 1개이므로 idx // 2
-                hrv_idx = idx // 2
+                print(f"[{session_id}] 🔮 예측 중... [{idx+1}/{num_predictions}] (시간: {idx*2}~{(idx+1)*2}분)")
                 
-                print(f"[{session_id}] 🔮 예측 중... [{idx+1}/{num_predictions}] (시간: {idx}~{idx+1}분, HRV[{hrv_idx}] 사용)")
-                
-                # 랜드마크 데이터 (1분 단위)
+                # 랜드마크 데이터 (2분 단위)
                 face, _, _ = dataset[idx]
-                face = face.unsqueeze(0)  # [1, 12, 150, 478, 3]
+                face = face.unsqueeze(0)  # [1, 24, 150, 478, 3]
                 
-                # HRV 데이터 (2분 단위를 재사용)
-                hrv_row = df_wearable.iloc[hrv_idx]
+                # HRV 데이터 (2분 단위, 1:1 매칭)
+                hrv_row = df_wearable.iloc[idx]
                 
                 # HRV 특징 벡터 생성 (timestamp 제외한 39개 특징)
-                # 컬럼 순서를 명시적으로 정렬하여 일관성 보장
                 feature_cols = [col for col in df_wearable.columns if col != 'timestamp']
                 hrv_vector = hrv_row[feature_cols].values.astype(float).tolist()
                 
@@ -473,19 +481,19 @@ def finish_drowsiness_detection(
                     raise ValueError(f"HRV 특징 차원 오류: {len(hrv_vector)}개 (기대값: 39개)")
                 
                 wear = torch.tensor(hrv_vector, dtype=torch.float32).unsqueeze(0).unsqueeze(0)  # [1, 1, 39]
-                # 12개 윈도우에 동일한 HRV 데이터 복제
-                wear = wear.repeat(1, 12, 1)  # [1, 12, 39]
+                # 24개 윈도우에 동일한 HRV 데이터 복제
+                wear = wear.repeat(1, 24, 1)  # [1, 24, 39]
                 
                 pred, aux = model(face, wear, edge_index)
                 drowsiness_score = float(pred.item())
                 all_preds.append(drowsiness_score)
                 print(f"[{session_id}] 📊 예측 결과: 졸음 점수 = {drowsiness_score:.4f}")
                 
-                # DB에 저장 (timestamp는 0부터 시작, 1분 단위)
+                # DB에 저장 (timestamp는 0부터 시작, 2분 단위)
                 drowsiness_record = DrowsinessLevel(
                     video_id=video_id,
                     student_uid=student_uid,
-                    timestamp=idx,  # 0 = 0~1분, 1 = 1~2분, 2 = 2~3분, ...
+                    timestamp=idx * 2,  # 0 = 0~2분, 2 = 2~4분, 4 = 4~6분, ...
                     drowsiness_score=drowsiness_score
                 )
                 db_session.add(drowsiness_record)
@@ -505,7 +513,7 @@ def finish_drowsiness_detection(
         raise HTTPException(status_code=400, detail="분석 결과가 없습니다.")
 
     print(f"[{session_id}] 🎉 졸음 탐지 분석 완료!")
-    print(f"[{session_id}] 📊 최종 결과: 총 {len(all_preds)}개 세그먼트 (1분 단위), 마지막 졸음 점수 = {all_preds[-1]:.4f}")
+    print(f"[{session_id}] 📊 최종 결과: 총 {len(all_preds)}개 세그먼트 (2분 단위), 마지막 졸음 점수 = {all_preds[-1]:.4f}")
     
     prediction = DrowsinessPrediction(
         session_id=session_id,
@@ -516,7 +524,7 @@ def finish_drowsiness_detection(
     return DrowsinessFinishResponse(
         session_id=session_id,
         prediction=prediction,
-        message=f"졸음 예측이 완료되었습니다. 총 {len(all_preds)}개의 1분 단위 세그먼트가 분석되었습니다."
+        message=f"졸음 예측이 완료되었습니다. 총 {len(all_preds)}개의 2분 단위 세그먼트가 분석되었습니다."
     )
 
 

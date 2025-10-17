@@ -134,12 +134,20 @@ def get_video_link_for_student(db: Session, student_uid: str, video_id: int) -> 
         DrowsinessLevel.student_uid == student_uid
     ).order_by(DrowsinessLevel.timestamp.asc()).all()
     
+    # 디버깅: 조회된 레코드 수 로그
+    print(f"[get_video_link_for_student] video_id={video_id}, student_uid={student_uid}")
+    print(f"[get_video_link_for_student] 조회된 졸음 레코드 수: {len(drowsiness_records)}")
+    if drowsiness_records:
+        print(f"[get_video_link_for_student] 첫 번째 레코드: timestamp={drowsiness_records[0].timestamp}, score={drowsiness_records[0].drowsiness_score}")
+    
     # 졸음 데이터를 { t: 시간(초), value: 졸음점수 } 형식으로 변환
-    # timestamp는 1분 단위 인덱스 (0, 1, 2, ...) → 초 단위로 변환 (0, 60, 120, ...)
+    # DB의 timestamp는 분 단위 (0, 2, 4, ...) → 초 단위로 변환 (0, 120, 240, ...)
     drowsiness_levels = [
         {"t": record.timestamp * 60, "value": record.drowsiness_score}
         for record in drowsiness_records
     ]
+    
+    print(f"[get_video_link_for_student] 변환된 drowsiness_levels: {drowsiness_levels}")
     
     # 5. s3_link, watched_percent, drowsiness_levels 반환
     return VideoLinkResponse(s3_link=video.s3_link, watched_percent=watched_percent, drowsiness_levels=drowsiness_levels)
