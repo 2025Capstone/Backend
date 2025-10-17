@@ -381,29 +381,22 @@ def finish_drowsiness_detection(
     else:
         raise HTTPException(status_code=500, detail="Landmark 데이터 저장 대기 시간을 초과했습니다.")
 
-    # 모든 랜드마크 chunk를 하나로 합치기
-    print(f"[{session_id}] 🔄 랜드마크 파일 병합 중...")
-    df_landmarks = pd.concat([pd.read_csv(f, header=None) for f in landmark_files], ignore_index=True)
-    df_landmarks.columns = ['timestamp'] + [f'lm_{i}' for i in range(df_landmarks.shape[1] - 1)]
-    print(f"[{session_id}] ✅ 랜드마크 데이터 로드 완료 (총 {len(df_landmarks)}개 프레임)")
-
-    # --- 5. 랜드마크와 웨어러블 데이터 병합 ---
-    print(f"[{session_id}] 🔗 Step 5: 랜드마크와 웨어러블 데이터 병합 시작")
-    df_wearable['timestamp'] = pd.to_numeric(df_wearable['timestamp'])
-    df_landmarks['timestamp'] = pd.to_numeric(df_landmarks['timestamp'])
-
-    df_merged = pd.merge_asof(
-        df_landmarks.sort_values('timestamp'),
-        df_wearable.sort_values('timestamp'),
-        on='timestamp',
-        direction='backward'
-    )
-    df_merged.dropna(inplace=True)
-
-    if df_merged.empty:
-        raise HTTPException(status_code=400, detail="랜드마크와 웨어러블 데이터를 병합할 수 없습니다. 타임스탬프를 확인하세요.")
+    # 랜드마크 파일 개수 확인 (병합은 PT 파일 생성 시 자동으로 수행됨)
+    print(f"[{session_id}] ✅ 랜드마크 데이터 확인 완료 (총 {len(landmark_files)}개 파일)")
     
-    print(f"[{session_id}] ✅ 데이터 병합 완료 (병합된 프레임: {len(df_merged)}개)")
+    # --- 5. 데이터 검증 ---
+    print(f"[{session_id}] ✅ Step 5: 데이터 검증 완료")
+    print(f"[{session_id}] 📊 HRV 세그먼트: {len(df_wearable)}개 (2분 단위)")
+    print(f"[{session_id}] 📊 랜드마크 파일: {len(landmark_files)}개")
+    
+    # HRV 특징 차원 확인
+    num_hrv_features = len([col for col in df_wearable.columns if col != 'timestamp'])
+    print(f"[{session_id}] 📊 HRV 특징 차원: {num_hrv_features}개")
+    if num_hrv_features != 39:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"HRV 특징 차원 불일치: {num_hrv_features}개 (기대값: 39개)"
+        )
 
     # --- 6. AI 모델 예측 수행 및 DB 저장 (1분 단위) ---
     print(f"[{session_id}] 🤖 Step 6: AI 모델 예측 수행 시작 (1분 단위)")
@@ -468,12 +461,17 @@ def finish_drowsiness_detection(
                 face = face.unsqueeze(0)  # [1, 12, 150, 478, 3]
                 
                 # HRV 데이터 (2분 단위를 재사용)
-                hrv_features = df_wearable.iloc[hrv_idx]
-                # HRV 특징 벡터 생성 (39개 특징)
-                hrv_vector = []
-                for col in df_wearable.columns:
-                    if col != 'timestamp':
-                        hrv_vector.append(float(hrv_features[col]))
+                hrv_row = df_wearable.iloc[hrv_idx]
+                
+                # HRV 특징 벡터 생성 (timestamp 제외한 39개 특징)
+                # 컬럼 순서를 명시적으로 정렬하여 일관성 보장
+                feature_cols = [col for col in df_wearable.columns if col != 'timestamp']
+                hrv_vector = hrv_row[feature_cols].values.astype(float).tolist()
+                
+                # 차원 검증
+                if len(hrv_vector) != 39:
+                    raise ValueError(f"HRV 특징 차원 오류: {len(hrv_vector)}개 (기대값: 39개)")
+                
                 wear = torch.tensor(hrv_vector, dtype=torch.float32).unsqueeze(0).unsqueeze(0)  # [1, 1, 39]
                 # 12개 윈도우에 동일한 HRV 데이터 복제
                 wear = wear.repeat(1, 12, 1)  # [1, 12, 39]

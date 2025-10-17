@@ -23,11 +23,18 @@ def _find_prominent_peaks(sig, threshold=0.1, min_y=0):
 def compute_hrv_and_features_from_firebase(session_id: str, alpha=0.05, fs=25):
     """
     Firebase에서 PPG 데이터를 가져와 HRV 특징 계산 및 이상탐지를 수행합니다.
-    총 wearable feature는 39개(시간컬럼 제외)를 생성합니다.
-      - Time domain HRV 16개
-      - Freq domain HRV 4개
-      - Nonlinear domain HRV 4개
-      - 각 도메인 MSPC-PCA 5개 × 3 = 15개 (T2, SPE, T2/ULC, SPE/ULC, Anomaly_Flag)
+    총 wearable feature는 39개(timestamp 컬럼 제외)를 생성합니다.
+    
+    특징 구성:
+      - Time domain: 16개 (mean_nni, median_nni, range_nni, sdnn, sdsd, rmssd, 
+                           nni_50, pnni_50, nni_20, pnni_20, cvsd, cvnni, 
+                           mean_hr, min_hr, max_hr, std_hr)
+      - Freq domain: 4개 (power_lf, power_hf, total_power, lf_hf_ratio)
+      - Nonlinear domain: 4개 (csi, cvi, modified_csi, sampen)
+      - MSPC-PCA (N > 1일 때): 15개 (각 도메인당 T2, SPE, T2_over_ULC, SPE_over_ULC, Anomaly_Flag × 3)
+    
+    Returns:
+        pd.DataFrame: timestamp 컬럼 + 39개 HRV 특징 컬럼
     """
     # 1) Firebase에서 PPG 데이터 불러오기
     ppg_node = db.reference(f"{session_id}/PPG_Data").get() or {}
@@ -115,7 +122,6 @@ def compute_hrv_and_features_from_firebase(session_id: str, alpha=0.05, fs=25):
 
         hrv_segments.append({
             "Segment Start": seg_start_ts,   # [수정] 키를 일관화 (아래 변환부에서 사용)
-            "Segment End": seg_end_ts,       # [수정] 세그먼트 종료 시각 저장
             "time": time_metrics,
             "freq": freq_metrics,
             "nonlinear": nonlinear_metrics
@@ -131,8 +137,7 @@ def compute_hrv_and_features_from_firebase(session_id: str, alpha=0.05, fs=25):
     for res in hrv_segments:
         # [수정] 타임스탬프 2개 유지 (상대초)
         row = {
-            "Timestamp": (res["Segment Start"] - t0) / np.timedelta64(1, 's'),
-            "Segment End": (res["Segment End"] - t0) / np.timedelta64(1, 's'),
+            "timestamp": (res["Segment Start"] - t0) / np.timedelta64(1, 's')
         }
         # [수정] 도메인 접두어 Title-case로 통일: Time_, Freq_, Nonlinear_
         for domain_key in ["time", "freq", "nonlinear"]:
@@ -189,11 +194,11 @@ def compute_hrv_and_features_from_firebase(session_id: str, alpha=0.05, fs=25):
         SPE_over_ULC = SPE / ulc_spe if ulc_spe > 0 else np.inf
         anomaly_flag = ((T2 >= ulc_t2) | (SPE >= ulc_spe)).astype(int)
 
-        # 6) DataFrame에 컬럼 추가 (5개 모두)  # [수정] 핵심 추가
-        df_wearable_features[f"{domain}_T2"] = T2                 # raw T2
-        df_wearable_features[f"{domain}_SPE"] = SPE               # raw SPE
-        df_wearable_features[f"{domain}_T2 / ULC"] = T2_over_ULC  # T2/ULC
-        df_wearable_features[f"{domain}_SPE / ULC"] = SPE_over_ULC  # SPE/ULC
-        df_wearable_features[f"{domain}_Anomaly Flag"] = anomaly_flag  # Flag
+        # 6) DataFrame에 컬럼 추가 (5개 모두)
+        df_wearable_features[f"{domain}_T2"] = T2                       # raw T2
+        df_wearable_features[f"{domain}_SPE"] = SPE                     # raw SPE
+        df_wearable_features[f"{domain}_T2_over_ULC"] = T2_over_ULC     # T2/ULC (공백 제거)
+        df_wearable_features[f"{domain}_SPE_over_ULC"] = SPE_over_ULC   # SPE/ULC (공백 제거)
+        df_wearable_features[f"{domain}_Anomaly_Flag"] = anomaly_flag   # Flag (공백 제거)
 
     return df_wearable_features

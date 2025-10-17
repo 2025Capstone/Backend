@@ -39,6 +39,6 @@ class SessionSequenceDataset(Dataset):
         wins = self.sessions[sid][start : start + self.seq_len]   # list length S
         # stack: face → [S, T, N, 3], wear → [S, 36], label → [S] (혹은 마지막)
         face = torch.stack([w['face_seq'] for w in wins])  # [S,T,N,3]
-        wear = torch.stack([w['wear_seq'] for w in wins])  # [S,36]
+        wear = torch.stack([w['wear_seq'] for w in wins])  # [S,39]
         label= wins[-1]['label'].float()                   # scalar(1,) → 회귀타깃
         return face, wear, label

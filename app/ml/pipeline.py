@@ -29,7 +29,7 @@ class MultimodalFatigueModel(nn.Module):
 
         # reshape to process each 5‑s window independently through ST‑GCN
         face_seq_reshaped = face_seq.view(B * S, T, N, C)
-        hrv_seq_reshaped = hrv_seq.view(B * S, -1)  # [B*S, 36]
+        hrv_seq_reshaped = hrv_seq.view(B * S, -1)  # [B*S, 39]
 
         hF = self.face_embed(face_seq_reshaped, edge_index)          # [B*S, 64]
         hP = self.hrv_embed(hrv_seq_reshaped)                        # [B*S, 64]
