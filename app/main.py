@@ -1,5 +1,6 @@
 # /app/main.py
 import logging
+import time
 from logging.handlers import RotatingFileHandler
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -57,6 +58,26 @@ app = FastAPI(
     title="ZzzCoach API",
     lifespan=lifespan # <<<--- FastAPI 앱 생성 시 lifespan을 등록합니다!
 )
+
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    start_time = time.time()
+
+    # 다음 미들웨어나 실제 API 엔드포인트를 호출
+    response = await call_next(request)
+
+    process_time = time.time() - start_time
+
+    # 응답 헤더에 처리 시간 추가
+    response.headers["X-Process-Time"] = str(process_time)
+
+    # 로그에 API 경로와 처리 시간 기록
+    logging.info(
+        f"Request processed: {request.method} {request.url.path} - Completed in {process_time:.4f} secs"
+    )
+
+    return response
+
 
 # --- 👇 2. 전역 예외 처리 핸들러 추가 ---
 @app.exception_handler(Exception)
