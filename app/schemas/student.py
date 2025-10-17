@@ -54,10 +54,15 @@ class LectureVideoListResponse(BaseModel):
 class VideoLinkRequest(BaseModel):
     video_id: int
 
+
+class DrowsinessData(BaseModel):
+    t: int
+    value: float
+
 class VideoLinkResponse(BaseModel):
     s3_link: str
     watched_percent: int
-    drowsiness_levels: List[float]
+    drowsiness_levels: List[DrowsinessData]
 
 class StudentProfileResponse(BaseModel):
     email: str
