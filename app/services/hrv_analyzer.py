@@ -23,6 +23,11 @@ def _find_prominent_peaks(sig, threshold=0.1, min_y=0):
 def compute_hrv_and_features_from_firebase(session_id: str, alpha=0.05, fs=25):
     """
     Firebase에서 PPG 데이터를 가져와 HRV 특징 계산 및 이상탐지를 수행합니다.
+    총 wearable feature는 39개(시간컬럼 제외)를 생성합니다.
+      - Time domain HRV 16개
+      - Freq domain HRV 4개
+      - Nonlinear domain HRV 4개
+      - 각 도메인 MSPC-PCA 5개 × 3 = 15개 (T2, SPE, T2/ULC, SPE/ULC, Anomaly_Flag)
     """
     # 1) Firebase에서 PPG 데이터 불러오기
     ppg_node = db.reference(f"{session_id}/PPG_Data").get() or {}
@@ -31,6 +36,8 @@ def compute_hrv_and_features_from_firebase(session_id: str, alpha=0.05, fs=25):
         if not v.get("isError", False):
             timestamps.append(pd.to_datetime(v["timestamp"]))
             ppg.append(v["ppgGreen"])
+
+
 
     if len(ppg) < fs * 2:
         raise ValueError("PPG 데이터가 HRV 분석을 하기에 충분하지 않습니다.")
@@ -58,9 +65,7 @@ def compute_hrv_and_features_from_firebase(session_id: str, alpha=0.05, fs=25):
         if len(peak_indices_in_seg) < 2:
             continue
 
-        # --- [추가된 부분 1] 전체 HRV 지표 생성 ---
-
-        # Time-domain
+        # --- Time-domain (16개) ---
         rri = np.diff(df["Timestamp"].iloc[peak_indices_in_seg].values).astype('timedelta64[ms]').astype(int)
         hr = 60000 / rri
 
@@ -84,7 +89,7 @@ def compute_hrv_and_features_from_firebase(session_id: str, alpha=0.05, fs=25):
             "std_hr": np.nanstd(hr, ddof=1),
         }
 
-        # Freq-domain
+        # --- Freq-domain (4개) ---
         hrv_freq = nk.hrv_frequency(peak_indices_in_seg, sampling_rate=fs, normalize=False)
         if not hrv_freq.empty:
             freq_metrics = {
@@ -96,7 +101,7 @@ def compute_hrv_and_features_from_firebase(session_id: str, alpha=0.05, fs=25):
         else:
             freq_metrics = {k: np.nan for k in ["power_lf", "power_hf", "total_power", "lf_hf_ratio"]}
 
-        # Nonlinear-domain
+        # --- Nonlinear-domain (4개) ---
         hrv_nl = nk.hrv_nonlinear(peak_indices_in_seg, sampling_rate=fs)
         if not hrv_nl.empty:
             nonlinear_metrics = {
@@ -109,22 +114,32 @@ def compute_hrv_and_features_from_firebase(session_id: str, alpha=0.05, fs=25):
             nonlinear_metrics = {k: np.nan for k in ["csi", "cvi", "modified_csi", "sampen"]}
 
         hrv_segments.append({
-            "segment_start_ts": seg_start_ts,
-            "time": time_metrics, "freq": freq_metrics, "nonlinear": nonlinear_metrics
+            "Segment Start": seg_start_ts,   # [수정] 키를 일관화 (아래 변환부에서 사용)
+            "Segment End": seg_end_ts,       # [수정] 세그먼트 종료 시각 저장
+            "time": time_metrics,
+            "freq": freq_metrics,
+            "nonlinear": nonlinear_metrics
         })
 
     # 결과 리스트를 DataFrame으로 변환
-    results_list = []
     if not hrv_segments:
         raise ValueError("HRV 세그먼트를 생성할 수 없습니다.")
 
-    t0 = hrv_segments[0]["segment_start_ts"]
+    results_list = []
+    t0 = hrv_segments[0]["Segment Start"]
+
     for res in hrv_segments:
-        row = {"timestamp": (res["segment_start_ts"] - t0) / np.timedelta64(1, 's')}
-        for domain, metrics in res.items():
-            if isinstance(metrics, dict):
-                for key, val in metrics.items():
-                    row[f"{domain}_{key}"] = val
+        # [수정] 타임스탬프 2개 유지 (상대초)
+        row = {
+            "Timestamp": (res["Segment Start"] - t0) / np.timedelta64(1, 's'),
+            "Segment End": (res["Segment End"] - t0) / np.timedelta64(1, 's'),
+        }
+        # [수정] 도메인 접두어 Title-case로 통일: Time_, Freq_, Nonlinear_
+        for domain_key in ["time", "freq", "nonlinear"]:
+            metrics = res[domain_key]
+            Dom = domain_key.capitalize()  # "time"->"Time", "freq"->"Freq", "nonlinear"->"Nonlinear"
+            for k, v in metrics.items():
+                row[f"{Dom}_{k}"] = v
         results_list.append(row)
 
     df_wearable_features = pd.DataFrame(results_list)
@@ -134,16 +149,17 @@ def compute_hrv_and_features_from_firebase(session_id: str, alpha=0.05, fs=25):
     if N <= 1:  # 데이터가 1개 이하일 경우 PCA/통계 분석이 불가
         return df_wearable_features
 
-    # --- [추가된 부분 2] MSPC-PCA 이상탐지 로직 ---
+    # --- [수정] MSPC-PCA 이상탐지 로직: 도메인별로 5개 컬럼 모두 추가 ---
     domains = {
-        "Time": df_wearable_features.filter(regex="^time_").columns,
-        "Freq": df_wearable_features.filter(regex="^freq_").columns,
-        "Nonlinear": df_wearable_features.filter(regex="^nonlinear_").columns
+        "Time": df_wearable_features.filter(regex=r"^Time_").columns,
+        "Freq": df_wearable_features.filter(regex=r"^Freq_").columns,
+        "Nonlinear": df_wearable_features.filter(regex=r"^Nonlinear_").columns
     }
 
     for domain, cols in domains.items():
-        if cols.empty:
+        if len(cols) == 0:
             continue
+
         # 1) 데이터 준비 및 표준화
         X = df_wearable_features[cols].fillna(0).values.astype(float)
         X_scaled = StandardScaler().fit_transform(X)
@@ -155,6 +171,7 @@ def compute_hrv_and_features_from_firebase(session_id: str, alpha=0.05, fs=25):
 
         # 3) Hotelling’s T² 계산
         T2 = (scores ** 2) / var1
+        # (기존 수식 유지)
         ulc_t2 = ((N + 1) * (N - 1) / (N * (N - 1))) * f.ppf(1 - alpha, 1, N - 1)
 
         # 4) SPE 계산
@@ -167,13 +184,16 @@ def compute_hrv_and_features_from_firebase(session_id: str, alpha=0.05, fs=25):
             df_chi = (2 * b * b) / v
             ulc_spe = (v / (2 * b)) * chi2.ppf(1 - alpha, df_chi)
 
-        T2_Anomaly_Score = T2 / ulc_t2 if ulc_t2 > 0 else np.inf
-        SPE_Anomaly_Score = SPE / ulc_spe if ulc_spe > 0 else np.inf
+        # 5) 스코어(비율) & 플래그
+        T2_over_ULC = T2 / ulc_t2 if ulc_t2 > 0 else np.inf
+        SPE_over_ULC = SPE / ulc_spe if ulc_spe > 0 else np.inf
         anomaly_flag = ((T2 >= ulc_t2) | (SPE >= ulc_spe)).astype(int)
 
-        # 5) DataFrame에 컬럼 추가
-        df_wearable_features[f"{domain}_T2_Score"] = T2_Anomaly_Score
-        df_wearable_features[f"{domain}_SPE_Score"] = SPE_Anomaly_Score
-        df_wearable_features[f"{domain}_Anomaly"] = anomaly_flag
+        # 6) DataFrame에 컬럼 추가 (5개 모두)  # [수정] 핵심 추가
+        df_wearable_features[f"{domain}_T2"] = T2                 # raw T2
+        df_wearable_features[f"{domain}_SPE"] = SPE               # raw SPE
+        df_wearable_features[f"{domain}_T2 / ULC"] = T2_over_ULC  # T2/ULC
+        df_wearable_features[f"{domain}_SPE / ULC"] = SPE_over_ULC  # SPE/ULC
+        df_wearable_features[f"{domain}_Anomaly Flag"] = anomaly_flag  # Flag
 
     return df_wearable_features
